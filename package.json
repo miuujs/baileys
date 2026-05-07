@@ -5,6 +5,7 @@
   "description": "WhatsApp Web API Library",
   "author": "reiwabyte",
   "main": "src/index.js",
+  "license": "GPL-3.0",
   "files": [
     "src/**/*",
     "WAProto/**/*",
