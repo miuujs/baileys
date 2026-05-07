@@ -231,8 +231,4 @@ const url = await sock.profilePictureUrl(jid, "image");
 
 Based on [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys) v7.0.0-rc10 by Rajeh Taher & the WhiskeySockets community.
 
----
 
-## License
-
-GPL-3.0
