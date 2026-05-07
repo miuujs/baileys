@@ -52,6 +52,7 @@ export const makeGroupsSocket = (config) => {
                 data[meta.id] = meta;
             }
         }
+        // TODO: properly parse LID / PN DATA
         sock.ev.emit('groups.update', Object.values(data));
         return data;
     };
@@ -182,12 +183,23 @@ export const makeGroupsSocket = (config) => {
             const result = getBinaryNodeChild(results, 'group');
             return result?.attrs.jid;
         },
+        /**
+         * revoke a v4 invite for someone
+         * @param groupJid group jid
+         * @param invitedJid jid of person you invited
+         * @returns true if successful
+         */
         groupRevokeInviteV4: async (groupJid, invitedJid) => {
             const result = await groupQuery(groupJid, 'set', [
                 { tag: 'revoke', attrs: {}, content: [{ tag: 'participant', attrs: { jid: invitedJid } }] }
             ]);
             return !!result;
         },
+        /**
+         * accept a GroupInviteMessage
+         * @param key the key of the invite message, or optionally only provide the jid of the person who sent the invite
+         * @param inviteMessage the message to accept
+         */
         groupAcceptInviteV4: ev.createBufferedFunction(async (key, inviteMessage) => {
             key = typeof key === 'string' ? { remoteJid: key } : key;
             const results = await groupQuery(inviteMessage.groupJid, 'set', [
@@ -200,7 +212,10 @@ export const makeGroupsSocket = (config) => {
                     }
                 }
             ]);
+            // if we have the full message key
+            // update the invite message to be expired
             if (key.id) {
+                // create new invite message that is expired
                 inviteMessage = proto.Message.GroupInviteMessage.fromObject(inviteMessage);
                 inviteMessage.inviteExpiration = 0;
                 inviteMessage.inviteCode = '';
@@ -215,6 +230,7 @@ export const makeGroupsSocket = (config) => {
                     }
                 ]);
             }
+            // generate the group add message
             await upsertMessage({
                 key: {
                     remoteJid: inviteMessage.groupJid,
@@ -256,6 +272,7 @@ export const makeGroupsSocket = (config) => {
 export const extractGroupMetadata = (result) => {
     const group = getBinaryNodeChild(result, 'group');
     if (!group) {
+        // Mirror WAWeb: surface server/client errors with their code+text instead of crashing.
         const errorNode = getBinaryNodeChild(result, 'error');
         if (errorNode) {
             const code = errorNode.attrs.code ? +errorNode.attrs.code : 500;
@@ -314,6 +331,7 @@ export const extractGroupMetadata = (result) => {
         joinApprovalMode: !!getBinaryNodeChild(group, 'membership_approval_mode'),
         memberAddMode,
         participants: getBinaryNodeChildren(group, 'participant').map(({ attrs }) => {
+            // TODO: Store LID MAPPINGS
             return {
                 id: attrs.jid,
                 phoneNumber: isLidUser(attrs.jid) && isPnUser(attrs.phone_number) ? attrs.phone_number : undefined,

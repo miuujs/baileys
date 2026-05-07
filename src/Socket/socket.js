@@ -12,7 +12,14 @@ import { BinaryInfo } from '../WAM/BinaryInfo.js';
 import { USyncQuery, USyncUser } from '../WAUSync/index.js';
 import { WebSocketClient } from './Client/index.js';
 import { executeWMexQuery } from './mex.js';
-import { makeSocket = (config) => {
+
+/**
+ * Connects to WA servers and performs:
+ * - simple queries (no retry mechanism, wait for connection establishment)
+ * - listen to messages and emit events
+ * - query phone connection
+ */
+export const makeSocket = (config) => {
     const { waWebSocketUrl, connectTimeoutMs, logger, keepAliveIntervalMs, browser, auth: authState, printQRInTerminal, defaultQueryTimeoutMs, transactionOpts, qrTimeout, makeSignalRepository } = config;
     const publicWAMBuffer = new BinaryInfo();
     let serverTimeOffsetMs = 0;
@@ -33,7 +40,9 @@ import { makeSocket = (config) => {
     if (url.protocol === 'wss' && authState?.creds?.routingInfo) {
         url.searchParams.append('ED', authState.creds.routingInfo.toString('base64url'));
     }
+    /** ephemeral key pair used to encrypt/decrypt communication. Unique for each connection */
     const ephemeralKeyPair = Curve.generateKeyPair();
+    /** WA noise protocol wrapper */
     const noise = makeNoiseHandler({
         keyPair: ephemeralKeyPair,
         NOISE_HEADER: NOISE_WA_HEADER,
@@ -43,6 +52,7 @@ import { makeSocket = (config) => {
     const ws = new WebSocketClient(url, config);
     ws.connect();
     const sendPromise = promisify(ws.send);
+    /** send a raw buffer */
     const sendRawMessage = async (data) => {
         if (!ws.isOpen) {
             throw new Boom('Connection Closed', { statusCode: DisconnectReason.connectionClosed });
@@ -58,6 +68,19 @@ import { makeSocket = (config) => {
             }
         });
     };
+    /** send a binary node */
+    const sendNode = (frame) => {
+        if (logger.level === 'trace') {
+            logger.trace({ xml: binaryNodeToString(frame), msg: 'xml send' });
+        }
+        const buff = encodeBinaryNode(frame);
+        return sendRawMessage(buff);
+    };
+    /**
+     * Wait for a message with a certain tag to be received
+     * @param msgId the message tag to await
+     * @param timeoutMs timeout after which the promise will reject
+     */
     const waitForMessage = async (msgId, timeoutMs = defaultQueryTimeoutMs) => {
         let onRecv;
         let onErr;
@@ -80,13 +103,11 @@ import { makeSocket = (config) => {
             return result;
         }
         catch (error) {
+            // Catch timeout and return undefined instead of throwing
             if (error instanceof Boom && error.output?.statusCode === DisconnectReason.timedOut) {
                 logger?.warn?.({ msgId }, 'timed out waiting for message');
                 return undefined;
             }
-            throw error;
-        }
-        catch (error) {
             throw error;
         }
         finally {
@@ -98,6 +119,7 @@ import { makeSocket = (config) => {
             }
         }
     };
+    /** send a query, and wait for its response. auto-generates message ID if not provided */
     const query = async (node, timeoutMs) => {
         if (!node.attrs.id) {
             node.attrs.id = generateMessageTag();
@@ -114,6 +136,8 @@ import { makeSocket = (config) => {
         }
         return result;
     };
+
+    // Validate current key-bundle on server; on failure, trigger pre-key upload and rethrow
     const digestKeyBundle = async () => {
         const res = await query({
             tag: 'iq',
@@ -126,6 +150,8 @@ import { makeSocket = (config) => {
             throw new Error('encrypt/get digest returned no digest node');
         }
     };
+
+    // Rotate our signed pre-key on server; on failure, run digest as fallback and rethrow
     const rotateSignedPreKey = async () => {
         const newId = (creds.signedPreKey.keyId || 0) + 1;
         const skey = await signedKeyPair(creds.signedIdentityKey, newId);
@@ -140,12 +166,16 @@ import { makeSocket = (config) => {
                 }
             ]
         });
+        // Persist new signed pre-key in creds
         ev.emit('creds.update', { signedPreKey: skey });
     };
+
     const executeUSyncQuery = async (usyncQuery) => {
         if (usyncQuery.protocols.length === 0) {
             throw new Boom('USyncQuery must have at least one protocol');
         }
+        // todo: validate users, throw WARNING on no valid users
+        // variable below has only validated users
         const validUsers = usyncQuery.users;
         const userNodes = validUsers.map(user => {
             return {
@@ -190,6 +220,7 @@ import { makeSocket = (config) => {
         const result = await query(iq);
         return usyncQuery.parseUSyncQueryResult(result);
     };
+
     const onWhatsApp = async (...phoneNumber) => {
         let usyncQuery = new USyncQuery();
         let contactEnabled = false;
@@ -215,6 +246,7 @@ import { makeSocket = (config) => {
             return results.list.filter(a => !!a.contact).map(({ contact, id }) => ({ jid: id, exists: contact }));
         }
     };
+
     const pnFromLIDUSync = async (jids) => {
         const usyncQuery = new USyncQuery().withLIDProtocol().withContext('background');
         for (const jid of jids) {
@@ -235,8 +267,10 @@ import { makeSocket = (config) => {
         }
         return [];
     };
+
     const ev = makeEventBuffer(logger);
     const { creds } = authState;
+    // add transaction capability
     const keys = addTransactionCapability(authState.keys, logger, transactionOpts);
     const signalRepository = makeSignalRepository({ creds, keys }, logger, pnFromLIDUSync);
     let lastDateRecv;
@@ -245,9 +279,11 @@ import { makeSocket = (config) => {
     let qrTimer;
     let closed = false;
     const socketEndHandlers = [];
+    /** log & process any unexpected errors */
     const onUnexpectedError = (err, msg) => {
         logger.error({ err }, `unexpected error in '${msg}'`);
     };
+    /** await the next incoming message */
     const awaitNextMessage = async (sendMsg) => {
         if (!ws.isOpen) {
             throw new Boom('Connection Closed', {
@@ -272,6 +308,7 @@ import { makeSocket = (config) => {
         }
         return result;
     };
+    /** connection handshake */
     const validateConnection = async () => {
         let helloMsg = {
             clientHello: { ephemeral: ephemeralKeyPair.public }
@@ -302,6 +339,7 @@ import { makeSocket = (config) => {
         await noise.finishInit();
         startKeepAliveRequest();
     };
+
     const getAvailablePreKeysOnServer = async () => {
         const result = await query({
             tag: 'iq',
@@ -316,40 +354,55 @@ import { makeSocket = (config) => {
         const countChild = getBinaryNodeChild(result, 'count');
         return +countChild.attrs.value;
     };
+
+    // WAWeb has no time throttle here; the server drives uploads via PreKeyLow notifications.
     let uploadPreKeysPromise = null;
+    /** generates and uploads a set of pre-keys to the server */
     const uploadPreKeys = async (count = MIN_PREKEY_COUNT) => {
         if (uploadPreKeysPromise) {
             logger.debug('Pre-key upload already in progress, waiting for completion');
             await uploadPreKeysPromise;
             return;
         }
-            const uploadLogic = async (retryCount) => {
-                logger.info({ count, retryCount }, 'uploading pre-keys');
-                const node = await keys.transaction(async () => {
+
+        const uploadLogic = async (retryCount) => {
+            logger.info({ count, retryCount }, 'uploading pre-keys');
+
+            // Generate and save pre-keys atomically (prevents ID collisions on retry)
+            const node = await keys.transaction(async () => {
                 logger.debug({ requestedCount: count }, 'generating pre-keys with requested count');
                 const { update, node } = await getNextPreKeysNode({ creds, keys }, count);
+                // Update credentials immediately to prevent duplicate IDs on retry
                 ev.emit('creds.update', update);
                 return node;
             }, creds?.me?.id || 'upload-pre-keys');
+
+            // Upload to server (outside transaction, can fail without affecting local keys)
             try {
                 await query(node);
                 logger.info({ count }, 'uploaded pre-keys successfully');
             }
             catch (uploadError) {
                 logger.error({ uploadError: uploadError.toString(), count }, 'Failed to upload pre-keys to server');
+
+                // Recurse into uploadLogic; calling uploadPreKeys would await its own in-flight promise.
                 if (retryCount < 3) {
                     const backoffDelay = Math.min(1000 * Math.pow(2, retryCount), 10000);
                     logger.info(`Retrying pre-key upload in ${backoffDelay}ms`);
                     await new Promise(resolve => setTimeout(resolve, backoffDelay));
                     return uploadLogic(retryCount + 1);
                 }
+
                 throw uploadError;
             }
         };
+
+        // Add timeout protection
         uploadPreKeysPromise = Promise.race([
             uploadLogic(0),
             new Promise((_, reject) => setTimeout(() => reject(new Boom('Pre-key upload timeout', { statusCode: 408 })), UPLOAD_TIMEOUT))
         ]);
+
         try {
             await uploadPreKeysPromise;
         }
@@ -357,6 +410,7 @@ import { makeSocket = (config) => {
             uploadPreKeysPromise = null;
         }
     };
+
     const verifyCurrentPreKeyExists = async () => {
         const currentPreKeyId = creds.nextPreKeyId - 1;
         if (currentPreKeyId <= 0) {
@@ -366,6 +420,7 @@ import { makeSocket = (config) => {
         const exists = !!preKeys[currentPreKeyId.toString()];
         return { exists, currentPreKeyId };
     };
+
     const uploadPreKeysToServerIfRequired = async () => {
         try {
             let count = 0;
@@ -397,17 +452,22 @@ import { makeSocket = (config) => {
             logger.error({ error }, 'Failed to check/upload pre-keys during initialization');
         }
     };
+
     const onMessageReceived = async (data) => {
         await noise.decodeFrame(data, frame => {
+            // reset ping timeout
             lastDateRecv = new Date();
             let anyTriggered = false;
             anyTriggered = ws.emit('frame', frame);
+            // if it's a binary node
             if (!(frame instanceof Uint8Array)) {
                 const msgId = frame.attrs.id;
                 if (logger.level === 'trace') {
                     logger.trace({ xml: binaryNodeToString(frame), msg: 'recv xml' });
                 }
+                /* Check if this is a response to a message we sent */
                 anyTriggered = ws.emit(`${DEF_TAG_PREFIX}${msgId}`, frame) || anyTriggered;
+                /* Check if this is a response to a message we are expecting */
                 const l0 = frame.tag;
                 const l1 = frame.attrs || {};
                 const l2 = Array.isArray(frame.content) ? frame.content[0]?.tag : '';
@@ -424,6 +484,7 @@ import { makeSocket = (config) => {
             }
         });
     };
+
     const end = async (error) => {
         if (closed) {
             logger.trace({ trace: error?.stack }, 'connection already closed');
@@ -461,6 +522,7 @@ import { makeSocket = (config) => {
         ev.removeAllListeners('connection.update');
         ev.destroy();
     };
+
     const waitForSocketOpen = async () => {
         if (ws.isOpen) {
             return;
@@ -482,15 +544,21 @@ import { makeSocket = (config) => {
             ws.off('error', onClose);
         });
     };
+
     const startKeepAliveRequest = () => (keepAliveReq = setInterval(() => {
         if (!lastDateRecv) {
             lastDateRecv = new Date();
         }
         const diff = Date.now() - lastDateRecv.getTime();
+        /*
+            check if it's been a suspicious amount of time since the server responded with our last seen
+            it could be that the network is down
+        */
         if (diff > keepAliveIntervalMs + 5000) {
             void end(new Boom('Connection was lost', { statusCode: DisconnectReason.connectionLost }));
         }
         else if (ws.isOpen) {
+            // if its all good, send a keep alive request
             query({
                 tag: 'iq',
                 attrs: {
@@ -507,7 +575,8 @@ import { makeSocket = (config) => {
         else {
             logger.warn('keep alive called when WS not open');
         }
-        }, keepAliveIntervalMs));
+    }, keepAliveIntervalMs));
+    /** i have no idea why this exists. pls enlighten me */
     const sendPassiveIq = (tag) => query({
         tag: 'iq',
         attrs: {
@@ -517,6 +586,7 @@ import { makeSocket = (config) => {
         },
         content: [{ tag, attrs: {} }]
     });
+    /** logout & invalidate connection */
     const logout = async (msg) => {
         const jid = authState.creds.me?.id;
         if (jid) {
@@ -541,6 +611,7 @@ import { makeSocket = (config) => {
         }
         void end(new Boom(msg || 'Intentional Logout', { statusCode: DisconnectReason.loggedOut }));
     };
+
     const requestPairingCode = async (phoneNumber, customPairingCode) => {
         const pairingCode = customPairingCode ?? bytesToCrockford(randomBytes(5));
         if (customPairingCode && customPairingCode?.length !== 8) {
@@ -566,6 +637,7 @@ import { makeSocket = (config) => {
                     attrs: {
                         jid: authState.creds.me.id,
                         stage: 'companion_hello',
+
                         should_show_push_notification: 'true'
                     },
                     content: [
@@ -600,6 +672,7 @@ import { makeSocket = (config) => {
         });
         return authState.creds.pairingCode;
     };
+
     async function generatePairingKey() {
         const salt = randomBytes(32);
         const randomIv = randomBytes(16);
@@ -607,6 +680,7 @@ import { makeSocket = (config) => {
         const ciphered = aesEncryptCTR(authState.creds.pairingEphemeralKeyPair.public, key, randomIv);
         return Buffer.concat([salt, randomIv, ciphered]);
     }
+
     const sendWAMBuffer = (wamBuffer) => {
         return query({
             tag: 'iq',
@@ -624,7 +698,9 @@ import { makeSocket = (config) => {
             ]
         });
     };
+
     ws.on('message', onMessageReceived);
+
     ws.on('open', async () => {
         try {
             await validateConnection();
@@ -636,7 +712,9 @@ import { makeSocket = (config) => {
     });
     ws.on('error', mapWebSocketError(end));
     ws.on('close', () => void end(new Boom('Connection Terminated', { statusCode: DisconnectReason.connectionClosed })));
+    // the server terminated the connection
     ws.on('CB:xmlstreamend', () => void end(new Boom('Connection Terminated by Server', { statusCode: DisconnectReason.connectionClosed })));
+    // QR gen
     ws.on('CB:iq,type:set,pair-device', async (stanza) => {
         const iq = {
             tag: 'iq',
@@ -670,6 +748,8 @@ import { makeSocket = (config) => {
         };
         genPairQR();
     });
+    // device paired for the first time
+    // if device pairs successfully, the server asks to restart the connection
     ws.on('CB:iq,,pair-success', async (stanza) => {
         logger.debug('pair success recv');
         try {
@@ -686,11 +766,14 @@ import { makeSocket = (config) => {
             void end(error);
         }
     });
+    // login complete
     ws.on('CB:success', async (node) => {
         try {
             updateServerTimeOffset(node);
             await uploadPreKeysToServerIfRequired();
             await sendPassiveIq('active');
+
+            // After successful login, validate our key-bundle against server
             try {
                 await digestKeyBundle();
             }
@@ -701,24 +784,35 @@ import { makeSocket = (config) => {
         catch (err) {
             logger.warn({ err }, 'failed to send initial passive iq');
         }
+
         logger.info('opened connection to WA');
         clearTimeout(qrTimer);
+
         ev.emit('creds.update', { me: { ...authState.creds.me, lid: node.attrs.lid } });
+
         ev.emit('connection.update', { connection: 'open' });
         void sendUnifiedSession();
+
         if (node.attrs.lid && authState.creds.me?.id) {
             const myLID = node.attrs.lid;
             process.nextTick(async () => {
                 try {
                     const myPN = authState.creds.me.id;
+
+                    // Store our own LID-PN mapping
                     await signalRepository.lidMapping.storeLIDPNMappings([{ lid: myLID, pn: myPN }]);
+
+                    // Create device list for our own user (needed for bulk migration)
                     const { user, device } = jidDecode(myPN);
                     await authState.keys.set({
                         'device-list': {
                             [user]: [device?.toString() || '0']
                         }
                     });
+
+                    // migrate our own session
                     await signalRepository.migrateSession(myPN, myLID);
+
                     logger.info({ myPN, myLID }, 'Own LID session created successfully');
                 }
                 catch (error) {
@@ -727,20 +821,23 @@ import { makeSocket = (config) => {
             });
         }
     });
+
     ws.on('CB:stream:error', (node) => {
         const [reasonNode] = getAllBinaryNodeChildren(node);
         logger.error({ reasonNode, fullErrorNode: node }, 'stream errored out');
         const { reason, statusCode } = getErrorCodeFromStreamError(node);
         void end(new Boom(`Stream Errored (${reason})`, { statusCode, data: reasonNode || node }));
     });
-    });
+    // stream fail, possible logout
     ws.on('CB:failure', (node) => {
         const reason = +(node.attrs.reason || 500);
         void end(new Boom('Connection Failure', { statusCode: reason, data: node.attrs }));
     });
+
     ws.on('CB:ib,,downgrade_webclient', () => {
         void end(new Boom('Multi-device beta not joined', { statusCode: DisconnectReason.multideviceMismatch }));
     });
+
     ws.on('CB:ib,,offline_preview', async (node) => {
         logger.info('offline preview received', JSON.stringify(node));
         await sendNode({
@@ -749,6 +846,7 @@ import { makeSocket = (config) => {
             content: [{ tag: 'offline_batch', attrs: { count: '100' } }]
         });
     });
+
     ws.on('CB:ib,,edge_routing', (node) => {
         const edgeRoutingNode = getBinaryNodeChild(node, 'edge_routing');
         const routingInfo = getBinaryNodeChild(edgeRoutingNode, 'routing_info');
@@ -757,14 +855,19 @@ import { makeSocket = (config) => {
             ev.emit('creds.update', authState.creds);
         }
     });
+
     let didStartBuffer = false;
     process.nextTick(() => {
         if (creds.me?.id) {
+            // start buffering important events
+            // if we're logged in
             ev.buffer();
             didStartBuffer = true;
         }
         ev.emit('connection.update', { connection: 'connecting', receivedPendingNotifications: false, qr: undefined });
     });
+
+    // called when all offline notifs are handled
     ws.on('CB:ib,,offline', (node) => {
         const child = getBinaryNodeChild(node, 'offline');
         const offlineNotifs = +(child?.attrs.count || 0);
@@ -774,15 +877,45 @@ import { makeSocket = (config) => {
             logger.trace('flushed events for initial buffer');
         }
         ev.emit('connection.update', { receivedPendingNotifications: true });
-        });
-        ev.emit('creds.update', { signedPreKey: skey });
+    });
+
+    // update credentials when required
+    ev.on('creds.update', update => {
+        const name = update.me?.name;
+        // if name has just been received
+        if (creds.me?.name !== name) {
+            logger.debug({ name }, 'updated pushName');
+            sendNode({
+                tag: 'presence',
+                attrs: { name: name }
+            }).catch(err => {
+                logger.warn({ trace: err.stack }, 'error in sending presence update on name change');
+            });
+        }
+        Object.assign(creds, update);
+    });
+
+    const updateServerTimeOffset = ({ attrs }) => {
+        const tValue = attrs?.t;
+        if (!tValue) {
+            return;
+        }
+        const parsed = Number(tValue);
+        if (Number.isNaN(parsed) || parsed <= 0) {
+            return;
+        }
+        const localMs = Date.now();
+        serverTimeOffsetMs = parsed * 1000 - localMs;
+        logger.debug({ offset: serverTimeOffsetMs }, 'calculated server time offset');
     };
+
     const getUnifiedSessionId = () => {
         const offsetMs = 3 * TimeMs.Day;
         const now = Date.now() + serverTimeOffsetMs;
         const id = (now + offsetMs) % TimeMs.Week;
         return id.toString();
     };
+
     const sendUnifiedSession = async () => {
         if (!ws.isOpen) {
             return;
@@ -806,9 +939,64 @@ import { makeSocket = (config) => {
             logger.debug({ error }, 'failed to send unified_session telemetry');
         }
     };
+
     const registerSocketEndHandler = (handler) => {
         socketEndHandlers.push(handler);
     };
+
+    /**
+     * Fetches your account's standing when it comes to restrictions.
+     * @returns Returns the state of the restrictions.
+     */
+    const fetchAccountReachoutTimelock = async () => {
+        const queryResult = await executeWMexQuery({}, QueryIds.REACHOUT_TIMELOCK, XWAPaths.xwa2_fetch_account_reachout_timelock, query, generateMessageTag);
+        const result = {
+            isActive: !!queryResult?.is_active,
+            timeEnforcementEnds: queryResult?.time_enforcement_ends && queryResult?.time_enforcement_ends !== '0'
+                ? new Date(parseInt(queryResult.time_enforcement_ends, 10) * 1000)
+                : undefined,
+            enforcementType: queryResult?.enforcement_type ?? ReachoutTimelockEnforcementType.DEFAULT
+        };
+        ev.emit('connection.update', { reachoutTimeLock: result });
+        return result;
+    };
+
+    /**
+     * Fetches your account's new chat limits.
+     * @returns Returns the quota and the usage.
+     */
+    const fetchNewChatMessageCap = async () => {
+        return executeWMexQuery({ input: { type: 'INDIVIDUAL_NEW_CHAT_MSG' } }, QueryIds.MESSAGE_CAPPING_INFO, XWAPaths.xwa2_message_capping_info, query, generateMessageTag);
+    };
+
+    return {
+        type: 'md',
+        ws,
+        ev,
+        authState: { creds, keys },
+        signalRepository,
+        get user() {
+            return authState.creds.me;
+        },
+        generateMessageTag,
+        query,
+        waitForMessage,
+        waitForSocketOpen,
+        sendRawMessage,
+        sendNode,
+        logout,
+        end,
+        registerSocketEndHandler,
+        onUnexpectedError,
+        uploadPreKeys,
+        uploadPreKeysToServerIfRequired,
+        digestKeyBundle,
+        rotateSignedPreKey,
+        requestPairingCode,
+        updateServerTimeOffset,
+        sendUnifiedSession,
+        wamBuffer: publicWAMBuffer,
+        /** Waits for the connection to WA to reach a state */
         waitForConnectionUpdate: bindWaitForConnectionUpdate(ev),
         sendWAMBuffer,
         executeUSyncQuery,
@@ -816,8 +1004,13 @@ import { makeSocket = (config) => {
         fetchAccountReachoutTimelock,
         fetchNewChatMessageCap
     };
-    };
-    function mapWebSocketError(handler) {
+};
+
+/**
+ * map the websocket error to the right type
+ * so it can be retried by the caller
+ * */
+function mapWebSocketError(handler) {
     return (error) => {
         handler(new Boom(`WebSocket Error (${error?.message})`, { statusCode: getCodeFromWSError(error), data: error }));
     };

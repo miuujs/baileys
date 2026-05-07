@@ -98,6 +98,11 @@ export const extractE2ESessionFromRetryReceipt = (receipt) => {
     };
 };
 export const parseAndInjectE2ESessions = async (node, repository) => {
+    // Most of the work in repository.injectE2ESession is CPU intensive, not IO
+    // So Promise.all doesn't really help here,
+    // but blocks even loop if we're using it inside keys.transaction, and it makes it "sync" actually
+    // This way we chunk it in smaller parts and between those parts we can yield to the event loop
+    // It's rare case when you need to E2E sessions for so many users, but it's possible
     const extractKey = (key) => key
         ? {
             keyId: getBinaryNodeChildUInt(key, 'id', 3),
@@ -159,6 +164,10 @@ export const extractDeviceJids = (result, myJid, myLid, excludeZeroDevices) => {
     }
     return extracted;
 };
+/**
+ * get the next N keys for upload or processing
+ * @param count number of pre-keys to get or generate
+ */
 export const getNextPreKeys = async ({ creds, keys }, count) => {
     const { newPreKeys, lastPreKeyId, preKeysRange } = generateOrGetPreKeys(creds, count);
     const update = {

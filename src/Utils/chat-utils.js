@@ -48,12 +48,17 @@ export const makeLtHashGenerator = ({ indexValueMap, hash }) => {
             const prevOp = indexValueMap[indexMacBase64];
             if (operation === proto.SyncdMutation.SyncdOperation.REMOVE) {
                 if (!prevOp) {
+                    // WA Web does not throw here -- it logs a warning and skips the subtract.
+                    // The missing REMOVE will cause an LTHash mismatch, which is handled
+                    // by the MAC validation layer (snapshot recovery or retry).
                     return;
                 }
+                // remove from index value mac, since this mutation is erased
                 delete indexValueMap[indexMacBase64];
             }
             else {
                 addBuffs.push(valueMac);
+                // add this index into the history map
                 indexValueMap[indexMacBase64] = { valueMac };
             }
             if (prevOp) {
@@ -85,9 +90,19 @@ export const ensureLTHashStateVersion = (state) => {
     return state;
 };
 export const MAX_SYNC_ATTEMPTS = 2;
+/**
+ * Check if an error is a missing app state sync key.
+ * WA Web treats these as "Blocked" (waits for key arrival), not fatal.
+ * In Baileys we retry with a snapshot which may use a different key.
+ */
 export const isMissingKeyError = (error) => {
     return error?.data?.isMissingKey === true;
 };
+/**
+ * Determines if an app state sync error is unrecoverable.
+ * TypeError indicates a WASM crash; otherwise we give up after MAX_SYNC_ATTEMPTS.
+ * Missing keys are NOT checked here -- they are handled separately as "Blocked".
+ */
 export const isAppStateSyncIrrecoverable = (error, attempts) => {
     return attempts >= MAX_SYNC_ATTEMPTS || error?.name === 'TypeError';
 };
@@ -110,6 +125,7 @@ export const encodeSyncdPatch = async ({ type, index, syncAction, apiVersion, op
     const encValue = aesEncrypt(encoded, keyValue.valueEncryptionKey);
     const valueMac = generateMac(operation, encValue, encKeyId, keyValue.valueMacKey);
     const indexMac = hmacSign(indexBuffer, keyValue.indexKey);
+    // update LT hash
     const generator = makeLtHashGenerator(state);
     generator.mix({ indexMac, valueMac, operation });
     Object.assign(state, generator.finish());
@@ -141,7 +157,12 @@ export const encodeSyncdPatch = async ({ type, index, syncAction, apiVersion, op
 export const decodeSyncdMutations = async (msgMutations, initialState, getAppStateSyncKey, onMutation, validateMacs) => {
     const ltGenerator = makeLtHashGenerator(initialState);
     const derivedKeyCache = new Map();
+    // indexKey used to HMAC sign record.index.blob
+    // valueEncryptionKey used to AES-256-CBC encrypt record.value.blob[0:-32]
+    // the remaining record.value.blob[0:-32] is the mac, it the HMAC sign of key.keyId + decoded proto data + length of bytes in keyId
     for (const msgMutation of msgMutations) {
+        // if it's a syncdmutation, get the operation property
+        // otherwise, if it's only a record -- it'll be a SET mutation
         const operation = 'operation' in msgMutation ? msgMutation.operation : proto.SyncdMutation.SyncdOperation.SET;
         const record = 'record' in msgMutation && !!msgMutation.record ? msgMutation.record : msgMutation;
         let key;
@@ -149,6 +170,9 @@ export const decodeSyncdMutations = async (msgMutations, initialState, getAppSta
             key = await getKey(record.keyId.id);
         }
         catch (err) {
+            // Missing-key errors must propagate so the orchestrator can park the
+            // collection (Blocked) and retry when APP_STATE_SYNC_KEY_SHARE arrives.
+            // Other errors -- individual record corruption, skip and keep going.
             if (isMissingKeyError(err))
                 throw err;
             continue;
@@ -159,6 +183,7 @@ export const decodeSyncdMutations = async (msgMutations, initialState, getAppSta
         if (validateMacs) {
             const contentHmac = generateMac(operation, encContent, record.keyId.id, key.valueMacKey);
             if (Buffer.compare(contentHmac, ogValueMac) !== 0) {
+                // HMAC verification failed -- skip this record
                 continue;
             }
         }
@@ -167,6 +192,7 @@ export const decodeSyncdMutations = async (msgMutations, initialState, getAppSta
             result = aesDecrypt(encContent, key.valueEncryptionKey);
         }
         catch {
+            // decrypt failed -- skip this record instead of aborting
             continue;
         }
         const syncAction = proto.SyncActionData.decode(result);
@@ -290,6 +316,11 @@ export const decodeSyncdSnapshot = async (name, snapshot, getAppStateSyncKey, mi
         const result = mutationKeys(keyEnc.keyData);
         const computedSnapshotMac = generateSnapshotMac(newState.hash, newState.version, name, result.snapshotMacKey);
         if (Buffer.compare(snapshot.mac, computedSnapshotMac) !== 0) {
+            // LTHash verification may fail when decodeSyncdMutations skipped undecryptable
+            // records (poisoned server-side snapshot); the aggregate client hash diverges
+            // from the server-computed mac. Fall through with a warning so the session stays
+            // alive with partial state, symmetric to how decodePatches handles its own
+            // LTHash mismatch a few lines below.
             logger?.warn({ name, version: newState.version }, 'LTHash verification failed on snapshot, continuing with partial state');
         }
     }
@@ -345,6 +376,7 @@ export const decodePatches = async (name, syncds, initial, getAppStateSyncKey, o
                 break;
             }
         }
+        // clear memory used up by the mutations
         syncd.mutations = [];
     }
     return { state: newState, mutationMap };

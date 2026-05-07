@@ -15,12 +15,12 @@ export const encodeWAM = (binaryInfo) => {
     return buffer;
 };
 function encodeWAMHeader(binaryInfo) {
-    const headerBuffer = Buffer.alloc(8);
+    const headerBuffer = Buffer.alloc(8); // starting buffer
     headerBuffer.write('WAM', 0, 'utf8');
     headerBuffer.writeUInt8(binaryInfo.protocolVersion, 3);
-    headerBuffer.writeUInt8(1, 4);
+    headerBuffer.writeUInt8(1, 4); // random flag
     headerBuffer.writeUInt16BE(binaryInfo.sequence, 5);
-    headerBuffer.writeUInt8(0, 7);
+    headerBuffer.writeUInt8(0, 7); // regular channel
     binaryInfo.buffer.push(headerBuffer);
 }
 function encodeGlobalAttributes(binaryInfo, globals) {
@@ -69,6 +69,7 @@ function serializeData(key, value, flag) {
         }
     }
     else if (typeof value === 'number' && Number.isInteger(value)) {
+        // is number
         if (value === 0 || value === 1) {
             buffer = Buffer.alloc(bufferLength);
             offset = serializeHeader(buffer, offset, key, flag | ((value + 1) << 4));
@@ -100,12 +101,14 @@ function serializeData(key, value, flag) {
         }
     }
     else if (typeof value === 'number') {
+        // is float
         buffer = Buffer.alloc(bufferLength + 8);
         offset = serializeHeader(buffer, offset, key, flag | (7 << 4));
         buffer.writeDoubleLE(value, offset);
         return buffer;
     }
     else if (typeof value === 'string') {
+        // is string
         const utf8Bytes = Buffer.byteLength(value, 'utf8');
         if (utf8Bytes < 256) {
             buffer = Buffer.alloc(bufferLength + 1 + utf8Bytes);

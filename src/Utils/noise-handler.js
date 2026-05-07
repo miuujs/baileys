@@ -3,13 +3,16 @@ import { proto } from '../../WAProto/index.js';
 import { NOISE_MODE, WA_CERT_DETAILS } from '../Defaults/index.js';
 import { decodeBinaryNode } from '../WABinary/index.js';
 import { aesDecryptGCM, aesEncryptGCM, Curve, hkdf, sha256 } from './crypto.js';
+
 const IV_LENGTH = 12;
 const EMPTY_BUFFER = Buffer.alloc(0);
+
 const generateIV = (counter) => {
     const iv = new ArrayBuffer(IV_LENGTH);
     new DataView(iv).setUint32(8, counter);
     return new Uint8Array(iv);
 };
+
 class TransportState {
     constructor(encKey, decKey) {
         this.encKey = encKey;
@@ -35,6 +38,7 @@ class TransportState {
         return aesDecryptGCM(ciphertext, this.decKey, this.iv, EMPTY_BUFFER);
     }
 }
+
 export const makeNoiseHandler = ({ keyPair: { private: privateKey, public: publicKey }, NOISE_HEADER, logger, routingInfo }) => {
     logger = logger.child({ class: 'ns' });
     const data = Buffer.from(NOISE_MODE);
@@ -141,6 +145,7 @@ export const makeNoiseHandler = ({ keyPair: { private: privateKey, public: publi
             mixIntoKey(Curve.sharedKey(privateKey, decStaticContent));
             const certDecoded = decrypt(serverHello.payload);
             const { intermediate: certIntermediate, leaf } = proto.CertChain.decode(certDecoded);
+            // leaf
             if (!leaf?.details || !leaf?.signature) {
                 throw new Boom('invalid noise leaf certificate', { statusCode: 400 });
             }

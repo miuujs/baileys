@@ -8,6 +8,7 @@ export const decompressingIfRequired = async (buffer) => {
         buffer = await inflatePromise(buffer.slice(1));
     }
     else {
+        // nodes with no compression have a 0x00 prefix, we remove that
         buffer = buffer.slice(1);
     }
     return buffer;
@@ -217,6 +218,7 @@ export const decodeDecompressedBinaryNode = (buffer, opts, indexRef = { index: 0
     if (listSize === 0 || !header) {
         throw new Error('invalid node');
     }
+    // read the attributes in
     const attributesLength = (listSize - 1) >> 1;
     for (let i = 0; i < attributesLength; i++) {
         const key = readString(readByte());
