@@ -1,19 +1,42 @@
-<p align="center">
-  <pre align="center">
-███████╗███████╗██╗     ██╗██████╗
-██╔════╝██╔════╝██║     ██║██╔══██╗
-█████╗  █████╗  ██║     ██║██████╔╝
-██╔══╝  ██╔══╝  ██║     ██║██╔══██╗
-███████╗███████╗███████╗██║██████╔╝
-╚══════╝╚══════╝╚══════╝╚═╝╚═════╝
-  </pre>
-</p>
+# yebail
 
-<div align="center">
-  <a href="https://github.com/WhiskeySockets/Baileys"><img src="https://img.shields.io/badge/Based%20on-whiskeysockets%2Fbaileys%20v7.0.0--rc10-blue?style=flat-square" alt="Based on baileys"/></a>
-  <img src="https://img.shields.io/badge/ESM-module-brightgreen?style=flat-square" alt="ESM"/>
-  <img src="https://img.shields.io/badge/license-GPL--3.0-lightgrey?style=flat-square" alt="License"/>
-</div>
+WhatsApp Web API Library based on `@whiskeysockets/baileys` v7.0.0-rc10
+
+---
+
+## Example
+
+```js
+import makeWASocket, { useMultiFileAuthState, DisconnectReason } from "baileys";
+
+async function start() {
+  const { state, saveCreds } = await useMultiFileAuthState("auth");
+
+  const sock = makeWASocket({ auth: state });
+
+  sock.ev.on("creds.update", saveCreds);
+
+  sock.ev.on("connection.update", ({ connection, lastDisconnect }) => {
+    if (connection === "close") {
+      if (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut) {
+        start();
+      }
+    } else if (connection === "open") {
+      console.log("Connected!");
+    }
+  });
+
+  sock.ev.on("messages.upsert", ({ messages }) => {
+    for (const msg of messages) {
+      if (!msg.key.fromMe) {
+        sock.sendMessage(msg.key.remoteJid, { text: "hello" });
+      }
+    }
+  });
+}
+
+start();
+```
 
 ---
 
