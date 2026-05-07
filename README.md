@@ -627,5 +627,8 @@ sock.ev.on("messages.upsert", ({ messages }) => {
 ---
 
 <p align="center">
-  MODE BY Raol Mukarrozi &nbsp;❤️&nbsp; aknwo9wb
+  <strong>MODE BY Raol Mukarrozi</strong> &nbsp;❤️&nbsp; <strong>aknwo9wb</strong><br/>
+  Created by <a href="https://github.com/raolmukarrozi">Raol Mukarrozi</a><br/>
+  Based on <a href="https://github.com/WhiskeySockets/Baileys">@whiskeysockets/baileys</a> v7.0.0-rc10<br/>
+  Licensed under the <a href="https://www.gnu.org/licenses/gpl-3.0.html">GNU General Public License v3.0</a>
 </p>
