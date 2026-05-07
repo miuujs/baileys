@@ -6,7 +6,8 @@
 
 ---
 
-## Interactive Messages
+<details>
+<summary><strong>Interactive Messages (Buttons, List, Template, Carousel, Shop)</strong></summary>
 
 All interactive message types are fully defined in WAProto. Since `sendMessage` does not have high-level helpers for these, use `generateWAMessageFromContent` or `relayMessage` directly.
 
@@ -345,383 +346,10 @@ const collection = proto.Message.InteractiveMessage.create({
 await sock.relayMessage(jid, { interactiveMessage: collection }, {});
 ```
 
----
+</details>
 
-## ContextInfo
-
-ContextInfo provides quoting, mentions, forwarding metadata, and external ad reply context.
-
-### Quote / Reply to a Message
-
-```js
-await sock.sendMessage(jid, { text: "This is a reply" }, {
-  quoted: originalMessage,
-});
-```
-
-### Mention Users
-
-```js
-await sock.sendMessage(jid, {
-  text: "Hello @6281234567890",
-  mentions: ["6281234567890@s.whatsapp.net"],
-});
-```
-
-### Combined Quote with Mentions
-
-```js
-await sock.sendMessage(jid, { text: "Reply with @6281234567890" }, {
-  quoted: originalMessage,
-  mentions: ["6281234567890@s.whatsapp.net"],
-});
-```
-
-### ContextInfo on Interactive Messages
-
-```js
-import { proto } from "baileys";
-
-const msg = proto.Message.InteractiveMessage.create({
-  body: { text: "Message with context" },
-  contextInfo: proto.Message.ContextInfo.create({
-    stanzaId: originalMessage.key.id,
-    participant: originalMessage.key.participant || originalMessage.key.remoteJid,
-    quotedMessage: originalMessage.message,
-    remoteJid: originalMessage.key.remoteJid,
-    mentionedJid: ["6281234567890@s.whatsapp.net"],
-    conversionSource: "source",
-    conversionData: Buffer.from("data"),
-    externalAdReply: proto.Message.ContextInfo.ExternalAdReply.create({
-      title: "Ad Title",
-      body: "Ad body",
-      mediaType: 2,
-      thumbnailUrl: "https://example.com/thumb.jpg",
-      sourceUrl: "https://example.com",
-      sourceType: "URL",
-      renderLargerThumbnail: false,
-      showAdAttribution: true,
-    }),
-    forwardingScore: 0,
-    isForwarded: false,
-    quotedAd: {
-      adContextInfo: {
-        adReply: {
-          advertiserName: "Brand",
-          mediaType: 2,
-        },
-      },
-    },
-  }),
-  nativeFlowMessage: {
-    buttons: [
-      {
-        name: "quick_reply",
-        buttonParamsJson: JSON.stringify({ display_text: "OK", id: "ok" }),
-      },
-    ],
-  },
-});
-
-await sock.relayMessage(jid, { interactiveMessage: msg }, {});
-```
-
-### Forward as Original
-
-```js
-await sock.sendMessage(jid, { forward: originalMessage });
-```
-
-### Forward with Context
-
-```js
-const contextInfo = proto.Message.ContextInfo.create({
-  forwardingScore: 1,
-  isForwarded: true,
-  quotedMessage: originalMessage.message,
-  participant: originalMessage.key.participant || originalMessage.key.remoteJid,
-  stanzaId: originalMessage.key.id,
-  remoteJid: originalMessage.key.remoteJid,
-  conversionSource: "source",
-  conversionData: Buffer.from("data"),
-});
-
-const msg = proto.Message.ExtendedTextMessage.create({
-  text: "Forwarded message",
-  contextInfo,
-});
-
-await sock.relayMessage(jid, { extendedTextMessage: msg }, {});
-```
-
-### ViewOnce
-
-```js
-await sock.sendMessage(jid, {
-  image: { url: "./photo.jpg" },
-  caption: "View once photo",
-  viewOnce: true,
-});
-
-await sock.sendMessage(jid, {
-  video: { url: "./video.mp4" },
-  caption: "View once video",
-  viewOnce: true,
-});
-
-await sock.sendMessage(jid, {
-  audio: { url: "./audio.ogg" },
-  mimetype: "audio/ogg",
-  viewOnce: true,
-  ptt: true,
-});
-```
-
-### External Ad Reply
-
-```js
-import { proto, generateWAMessageFromContent } from "baileys";
-
-const msg = generateWAMessageFromContent(jid, {
-  extendedTextMessage: proto.Message.ExtendedTextMessage.create({
-    text: "Sponsored message",
-    contextInfo: proto.Message.ContextInfo.create({
-      externalAdReply: proto.Message.ContextInfo.ExternalAdReply.create({
-        title: "Product Name",
-        body: "Product description here",
-        mediaType: 2,
-        thumbnailUrl: "https://example.com/thumb.jpg",
-        sourceUrl: "https://example.com",
-        sourceType: "URL",
-        renderLargerThumbnail: true,
-        showAdAttribution: true,
-        mediaUrl: "https://example.com/media.jpg",
-        advertiserName: "Brand",
-      }),
-    }),
-  }),
-}, {});
-
-await sock.relayMessage(jid, msg.message, {});
-```
-
----
-
-## Rich Text / Extended Text
-
-### Text Formatting
-
-```js
-// Bold: *text*
-// Italic: _text_
-// Strikethrough: ~text~
-// Monospace: ```text```
-
-await sock.sendMessage(jid, {
-  text: "*Bold* _Italic_ ~Strikethrough~ ```Monospace```",
-});
-```
-
-### Link with Preview
-
-```js
-// make sure `link-preview-js` dependency is installed
-
-await sock.sendMessage(jid, {
-  text: "Check this: https://github.com/whiskeysockets/baileys",
-});
-```
-
-### Extended Text Message with ContextInfo
-
-```js
-import { proto, generateWAMessageFromContent } from "baileys";
-
-const msg = generateWAMessageFromContent(jid, {
-  extendedTextMessage: proto.Message.ExtendedTextMessage.create({
-    text: "Rich text with mentions and title",
-    matchedText: "https://example.com",
-    canonicalUrl: "https://example.com",
-    description: "Link description here",
-    title: "Link Title",
-    previewType: 2,
-    jpegThumbnail: Buffer.from("..."),
-    contextInfo: proto.Message.ContextInfo.create({
-      mentionedJid: ["6281234567890@s.whatsapp.net"],
-      externalAdReply: proto.Message.ContextInfo.ExternalAdReply.create({
-        title: "Title",
-        body: "Body",
-        mediaType: 2,
-        thumbnailUrl: "https://example.com/thumb.jpg",
-        sourceUrl: "https://example.com",
-      }),
-    }),
-  }),
-}, {});
-
-await sock.relayMessage(jid, msg.message, {});
-```
-
----
-
-## Rich Response
-
-### Buttons Response
-
-Handle user replies from native flow buttons.
-
-```js
-sock.ev.on("messages.upsert", ({ messages }) => {
-  for (const msg of messages) {
-    const content = msg.message;
-    if (content?.interactiveResponseMessage?.nativeFlowResponseMessage) {
-      const data = JSON.parse(
-        content.interactiveResponseMessage.nativeFlowResponseMessage.responseJson
-      );
-      const { id, display_text } = data;
-      console.log("Button clicked:", id, display_text);
-    }
-  }
-});
-```
-
-### Legacy Buttons Response
-
-```js
-sock.ev.on("messages.upsert", ({ messages }) => {
-  for (const msg of messages) {
-    if (msg.message?.buttonsResponseMessage) {
-      const res = msg.message.buttonsResponseMessage;
-      console.log("Button ID:", res.selectedButtonId);
-      console.log("Button text:", res.selectedDisplayText);
-    }
-  }
-});
-```
-
-### List Response
-
-```js
-sock.ev.on("messages.upsert", ({ messages }) => {
-  for (const msg of messages) {
-    if (msg.message?.listResponseMessage) {
-      const res = msg.message.listResponseMessage;
-      console.log("Selected row ID:", res.singleSelectReply?.selectedRowId);
-      console.log("List title:", res.title);
-      console.log("Description:", res.description);
-    }
-  }
-});
-```
-
-### Template Response
-
-```js
-sock.ev.on("messages.upsert", ({ messages }) => {
-  for (const msg of messages) {
-    if (msg.message?.templateButtonReplyMessage) {
-      const res = msg.message.templateButtonReplyMessage;
-      console.log("Template reply ID:", res.selectedId);
-      console.log("Template reply text:", res.selectedDisplayText);
-    }
-  }
-});
-```
-
-### Poll Response (Vote)
-
-```js
-import { getAggregateVotesInPollMessage } from "baileys";
-
-sock.ev.on("messages.update", async (updates) => {
-  for (const { key, update } of updates) {
-    if (update.pollUpdates) {
-      const pollCreation = await getMessage(key); // from your store
-      if (pollCreation) {
-        const votes = getAggregateVotesInPollMessage({
-          message: pollCreation,
-          pollUpdates: update.pollUpdates,
-        });
-        console.log("Poll results:", votes);
-      }
-    }
-  }
-});
-```
-
-### Sending Rich Response Messages
-
-```js
-import { proto } from "baileys";
-
-// Send buttons response manually
-const btnRes = proto.Message.ButtonsResponseMessage.create({
-  selectedButtonId: "btn_1",
-  selectedDisplayText: "Option A",
-  type: proto.Message.ButtonsResponseMessage.Type.NATIVE_FLOW,
-  contextInfo: {},
-});
-
-await sock.relayMessage(jid, { buttonsResponseMessage: btnRes }, {});
-
-// Send list response manually
-const listRes = proto.Message.ListResponseMessage.create({
-  title: "Selected Option",
-  listType: proto.Message.ListResponseMessage.ListType.LIST,
-  singleSelectReply: {
-    selectedRowId: "row_a",
-  },
-  contextInfo: {},
-});
-
-await sock.relayMessage(jid, { listResponseMessage: listRes }, {});
-
-// Send interactive response manually
-const ir = proto.Message.InteractiveResponseMessage.create({
-  nativeFlowResponseMessage:
-    proto.Message.InteractiveResponseMessage.NativeFlowResponseMessage.create({
-      name: "quick_reply",
-      responseJson: JSON.stringify({ id: "btn_1", display_text: "OK" }),
-    }),
-  contextInfo: {},
-});
-
-await sock.relayMessage(jid, { interactiveResponseMessage: ir }, {});
-```
-
----
-
-## Handling Interactive Responses
-
-```js
-sock.ev.on("messages.upsert", ({ messages }) => {
-  for (const msg of messages) {
-    const content = msg.message;
-    if (content?.buttonsResponseMessage) {
-      const btn = content.buttonsResponseMessage;
-      console.log("Button reply:", btn.selectedButtonId, btn.selectedDisplayText);
-    }
-    if (content?.listResponseMessage) {
-      const list = content.listResponseMessage;
-      console.log("List reply:", list.singleSelectReply?.selectedRowId, list.title);
-    }
-    if (content?.interactiveResponseMessage) {
-      const ir = content.interactiveResponseMessage;
-      if (ir.nativeFlowResponseMessage) {
-        const data = JSON.parse(ir.nativeFlowResponseMessage.responseJson);
-        console.log("Native flow reply:", data);
-      }
-    }
-    if (content?.templateButtonReplyMessage) {
-      console.log("Template reply:", content.templateButtonReplyMessage.selectedId);
-    }
-  }
-});
-```
-
----
-
-## Meta AI Rich Response (AIRichResponseMessage)
+<details>
+<summary><strong>Meta AI Rich Response (AIRichResponseMessage)</strong></summary>
 
 Meta AI sends rich responses as field `richResponseMessage` (field 97) in the `Message` container. Each rich response contains one or more `submessages` of different types.
 
@@ -915,8 +543,6 @@ sock.ev.on("messages.upsert", ({ messages }) => {
 
 ### Source Citations (BotSourcesMetadata)
 
-Meta AI responses include source citations in `WebMessageInfo.messageContextInfo?.botMetadata?.richResponseSourcesMetadata`.
-
 ```js
 sock.ev.on("messages.upsert", ({ messages }) => {
   for (const msg of messages) {
@@ -928,7 +554,7 @@ sock.ev.on("messages.upsert", ({ messages }) => {
       for (const src of sources.sources) {
         console.log(`[${src.citationNumber}] ${src.sourceTitle}`);
         console.log("  URL:", src.sourceProviderUrl);
-        console.log("  Provider:", src.provider); // 1=BING, 2=GOOGLE, 3=SUPPORT, 4=OTHER
+        console.log("  Provider:", src.provider);
         console.log("  Query:", src.sourceQuery);
       }
     }
@@ -938,8 +564,6 @@ sock.ev.on("messages.upsert", ({ messages }) => {
 
 ### Bot Metadata Fields
 
-The `messageContextInfo.botMetadata` object contains:
-
 | Field | Type | Description |
 |-------|------|-------------|
 | `botResponseId` | `string` | Unique response ID |
@@ -948,14 +572,11 @@ The `messageContextInfo.botMetadata` object contains:
 | `personaId` | `string` | AI persona identifier |
 | `timezone` | `string` | User timezone |
 | `messageDisclaimerText` | `string` | Disclaimer text |
-| `botResponseId` | `string` | Response identifier |
 | `regenerateMetadata` | `AIRegenerateMetadata` | Regeneration info |
 | `botThreadInfo` | `AIThreadInfo` | Thread metadata |
 | `sessionMetadata` | `BotSessionMetadata` | Session info |
 
 ### Question Response
-
-Status question answers come as `questionResponseMessage` (field 107):
 
 ```js
 sock.ev.on("messages.upsert", ({ messages }) => {
@@ -971,18 +592,7 @@ sock.ev.on("messages.upsert", ({ messages }) => {
 
 ### Event Response (RSVP)
 
-Calendar event RSVPs come as `eventResponseMessage` (decrypted from `encEventResponseMessage`):
-
 ```js
-sock.ev.on("messages.upsert", async ({ messages }) => {
-  for (const msg of messages) {
-    if (msg.message?.encEventResponseMessage) {
-      // baileys auto-decrypts this
-      // Check WebMessageInfo.eventResponses instead
-    }
-  }
-});
-
 // Event responses appear in WebMessageInfo.eventResponses
 // msg.eventResponses -> array of EventResponse
 // {
@@ -996,5 +606,7 @@ sock.ev.on("messages.upsert", async ({ messages }) => {
 //   unread: false,
 // }
 ```
+
+</details>
 
 Based on [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys) v7.0.0-rc10 by Rajeh Taher & the WhiskeySockets community.
