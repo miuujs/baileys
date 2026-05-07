@@ -29,6 +29,6 @@ export const getCompanionPlatformId = (browser) => {
     return getCompanionWebClientType(browser).toString();
 };
 export const buildPairingQRData = (ref, noiseKeyB64, identityKeyB64, advB64, browser) => {
-    return ('https:
+    return ('https://wa.me/settings/linked_devices#' +
         [ref, noiseKeyB64, identityKeyB64, advB64, getCompanionPlatformId(browser)].join(','));
 };
