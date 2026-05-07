@@ -172,9 +172,6 @@ export const parseProductNode = (productNode) => {
     };
     return product;
 };
-/**
- * Uploads images not already uploaded to WA's servers
- */
 export async function uploadingNecessaryImagesOfProduct(product, waUploadToServer, timeoutMs = 30000) {
     product = {
         ...product,
@@ -184,9 +181,6 @@ export async function uploadingNecessaryImagesOfProduct(product, waUploadToServe
     };
     return product;
 }
-/**
- * Uploads images not already uploaded to WA's servers
- */
 export const uploadingNecessaryImages = async (images, waUploadToServer, timeoutMs = 30000) => {
     const results = await Promise.all(images.map(async (img) => {
         if ('url' in img) {
@@ -228,4 +222,3 @@ const parseStatusInfo = (mediaNode) => {
         canAppeal: getBinaryNodeChildString(node, 'can_appeal') === 'true'
     };
 };
-//# sourceMappingURL=business.js.map

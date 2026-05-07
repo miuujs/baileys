@@ -48,17 +48,12 @@ export const makeLtHashGenerator = ({ indexValueMap, hash }) => {
             const prevOp = indexValueMap[indexMacBase64];
             if (operation === proto.SyncdMutation.SyncdOperation.REMOVE) {
                 if (!prevOp) {
-                    // WA Web does not throw here — it logs a warning and skips the subtract.
-                    // The missing REMOVE will cause an LTHash mismatch, which is handled
-                    // by the MAC validation layer (snapshot recovery or retry).
                     return;
                 }
-                // remove from index value mac, since this mutation is erased
                 delete indexValueMap[indexMacBase64];
             }
             else {
                 addBuffs.push(valueMac);
-                // add this index into the history map
                 indexValueMap[indexMacBase64] = { valueMac };
             }
             if (prevOp) {
@@ -90,19 +85,9 @@ export const ensureLTHashStateVersion = (state) => {
     return state;
 };
 export const MAX_SYNC_ATTEMPTS = 2;
-/**
- * Check if an error is a missing app state sync key.
- * WA Web treats these as "Blocked" (waits for key arrival), not fatal.
- * In Baileys we retry with a snapshot which may use a different key.
- */
 export const isMissingKeyError = (error) => {
     return error?.data?.isMissingKey === true;
 };
-/**
- * Determines if an app state sync error is unrecoverable.
- * TypeError indicates a WASM crash; otherwise we give up after MAX_SYNC_ATTEMPTS.
- * Missing keys are NOT checked here — they are handled separately as "Blocked".
- */
 export const isAppStateSyncIrrecoverable = (error, attempts) => {
     return attempts >= MAX_SYNC_ATTEMPTS || error?.name === 'TypeError';
 };
@@ -125,7 +110,6 @@ export const encodeSyncdPatch = async ({ type, index, syncAction, apiVersion, op
     const encValue = aesEncrypt(encoded, keyValue.valueEncryptionKey);
     const valueMac = generateMac(operation, encValue, encKeyId, keyValue.valueMacKey);
     const indexMac = hmacSign(indexBuffer, keyValue.indexKey);
-    // update LT hash
     const generator = makeLtHashGenerator(state);
     generator.mix({ indexMac, valueMac, operation });
     Object.assign(state, generator.finish());
@@ -157,12 +141,7 @@ export const encodeSyncdPatch = async ({ type, index, syncAction, apiVersion, op
 export const decodeSyncdMutations = async (msgMutations, initialState, getAppStateSyncKey, onMutation, validateMacs) => {
     const ltGenerator = makeLtHashGenerator(initialState);
     const derivedKeyCache = new Map();
-    // indexKey used to HMAC sign record.index.blob
-    // valueEncryptionKey used to AES-256-CBC encrypt record.value.blob[0:-32]
-    // the remaining record.value.blob[0:-32] is the mac, it the HMAC sign of key.keyId + decoded proto data + length of bytes in keyId
     for (const msgMutation of msgMutations) {
-        // if it's a syncdmutation, get the operation property
-        // otherwise, if it's only a record -- it'll be a SET mutation
         const operation = 'operation' in msgMutation ? msgMutation.operation : proto.SyncdMutation.SyncdOperation.SET;
         const record = 'record' in msgMutation && !!msgMutation.record ? msgMutation.record : msgMutation;
         let key;
@@ -170,9 +149,6 @@ export const decodeSyncdMutations = async (msgMutations, initialState, getAppSta
             key = await getKey(record.keyId.id);
         }
         catch (err) {
-            // Missing-key errors must propagate so the orchestrator can park the
-            // collection (Blocked) and retry when APP_STATE_SYNC_KEY_SHARE arrives.
-            // Other errors → individual record corruption, skip and keep going.
             if (isMissingKeyError(err))
                 throw err;
             continue;
@@ -183,7 +159,6 @@ export const decodeSyncdMutations = async (msgMutations, initialState, getAppSta
         if (validateMacs) {
             const contentHmac = generateMac(operation, encContent, record.keyId.id, key.valueMacKey);
             if (Buffer.compare(contentHmac, ogValueMac) !== 0) {
-                // HMAC verification failed — skip this record
                 continue;
             }
         }
@@ -192,7 +167,6 @@ export const decodeSyncdMutations = async (msgMutations, initialState, getAppSta
             result = aesDecrypt(encContent, key.valueEncryptionKey);
         }
         catch {
-            // decrypt failed — skip this record instead of aborting
             continue;
         }
         const syncAction = proto.SyncActionData.decode(result);
@@ -316,11 +290,6 @@ export const decodeSyncdSnapshot = async (name, snapshot, getAppStateSyncKey, mi
         const result = mutationKeys(keyEnc.keyData);
         const computedSnapshotMac = generateSnapshotMac(newState.hash, newState.version, name, result.snapshotMacKey);
         if (Buffer.compare(snapshot.mac, computedSnapshotMac) !== 0) {
-            // LTHash verification may fail when decodeSyncdMutations skipped undecryptable
-            // records (poisoned server-side snapshot); the aggregate client hash diverges
-            // from the server-computed mac. Fall through with a warning so the session stays
-            // alive with partial state, symmetric to how decodePatches handles its own
-            // LTHash mismatch a few lines below.
             logger?.warn({ name, version: newState.version }, 'LTHash verification failed on snapshot, continuing with partial state');
         }
     }
@@ -376,7 +345,6 @@ export const decodePatches = async (name, syncds, initial, getAppStateSyncKey, o
                 break;
             }
         }
-        // clear memory used up by the mutations
         syncd.mutations = [];
     }
     return { state: newState, mutationMap };
@@ -478,395 +446,3 @@ export const chatModificationToAppPatch = (mod, jid) => {
                     messageRange: getMessageRange(mod.lastMessages)
                 }
             },
-            index: ['clearChat', jid, '1' /*the option here is 0 when keep starred messages is enabled*/, '0'],
-            type: 'regular_high',
-            apiVersion: 6,
-            operation: OP.SET
-        };
-    }
-    else if ('pin' in mod) {
-        patch = {
-            syncAction: {
-                pinAction: {
-                    pinned: !!mod.pin
-                }
-            },
-            index: ['pin_v1', jid],
-            type: 'regular_low',
-            apiVersion: 5,
-            operation: OP.SET
-        };
-    }
-    else if ('contact' in mod) {
-        patch = {
-            syncAction: {
-                contactAction: mod.contact || {}
-            },
-            index: ['contact', jid],
-            type: 'critical_unblock_low',
-            apiVersion: 2,
-            operation: mod.contact ? OP.SET : OP.REMOVE
-        };
-    }
-    else if ('disableLinkPreviews' in mod) {
-        patch = {
-            syncAction: {
-                privacySettingDisableLinkPreviewsAction: mod.disableLinkPreviews || {}
-            },
-            index: ['setting_disableLinkPreviews'],
-            type: 'regular',
-            apiVersion: 8,
-            operation: OP.SET
-        };
-    }
-    else if ('star' in mod) {
-        const key = mod.star.messages[0];
-        patch = {
-            syncAction: {
-                starAction: {
-                    starred: !!mod.star.star
-                }
-            },
-            index: ['star', jid, key.id, key.fromMe ? '1' : '0', '0'],
-            type: 'regular_low',
-            apiVersion: 2,
-            operation: OP.SET
-        };
-    }
-    else if ('delete' in mod) {
-        patch = {
-            syncAction: {
-                deleteChatAction: {
-                    messageRange: getMessageRange(mod.lastMessages)
-                }
-            },
-            index: ['deleteChat', jid, '1'],
-            type: 'regular_high',
-            apiVersion: 6,
-            operation: OP.SET
-        };
-    }
-    else if ('pushNameSetting' in mod) {
-        patch = {
-            syncAction: {
-                pushNameSetting: {
-                    name: mod.pushNameSetting
-                }
-            },
-            index: ['setting_pushName'],
-            type: 'critical_block',
-            apiVersion: 1,
-            operation: OP.SET
-        };
-    }
-    else if ('quickReply' in mod) {
-        patch = {
-            syncAction: {
-                quickReplyAction: {
-                    count: 0,
-                    deleted: mod.quickReply.deleted || false,
-                    keywords: [],
-                    message: mod.quickReply.message || '',
-                    shortcut: mod.quickReply.shortcut || ''
-                }
-            },
-            index: ['quick_reply', mod.quickReply.timestamp || String(Math.floor(Date.now() / 1000))],
-            type: 'regular',
-            apiVersion: 2,
-            operation: OP.SET
-        };
-    }
-    else if ('addLabel' in mod) {
-        patch = {
-            syncAction: {
-                labelEditAction: {
-                    name: mod.addLabel.name,
-                    color: mod.addLabel.color,
-                    predefinedId: mod.addLabel.predefinedId,
-                    deleted: mod.addLabel.deleted
-                }
-            },
-            index: ['label_edit', mod.addLabel.id],
-            type: 'regular',
-            apiVersion: 3,
-            operation: OP.SET
-        };
-    }
-    else if ('addChatLabel' in mod) {
-        patch = {
-            syncAction: {
-                labelAssociationAction: {
-                    labeled: true
-                }
-            },
-            index: [LabelAssociationType.Chat, mod.addChatLabel.labelId, jid],
-            type: 'regular',
-            apiVersion: 3,
-            operation: OP.SET
-        };
-    }
-    else if ('removeChatLabel' in mod) {
-        patch = {
-            syncAction: {
-                labelAssociationAction: {
-                    labeled: false
-                }
-            },
-            index: [LabelAssociationType.Chat, mod.removeChatLabel.labelId, jid],
-            type: 'regular',
-            apiVersion: 3,
-            operation: OP.SET
-        };
-    }
-    else if ('addMessageLabel' in mod) {
-        patch = {
-            syncAction: {
-                labelAssociationAction: {
-                    labeled: true
-                }
-            },
-            index: [LabelAssociationType.Message, mod.addMessageLabel.labelId, jid, mod.addMessageLabel.messageId, '0', '0'],
-            type: 'regular',
-            apiVersion: 3,
-            operation: OP.SET
-        };
-    }
-    else if ('removeMessageLabel' in mod) {
-        patch = {
-            syncAction: {
-                labelAssociationAction: {
-                    labeled: false
-                }
-            },
-            index: [
-                LabelAssociationType.Message,
-                mod.removeMessageLabel.labelId,
-                jid,
-                mod.removeMessageLabel.messageId,
-                '0',
-                '0'
-            ],
-            type: 'regular',
-            apiVersion: 3,
-            operation: OP.SET
-        };
-    }
-    else {
-        throw new Boom('not supported');
-    }
-    patch.syncAction.timestamp = Date.now();
-    return patch;
-};
-export const processSyncAction = (syncAction, ev, me, initialSyncOpts, logger) => {
-    const isInitialSync = !!initialSyncOpts;
-    const accountSettings = initialSyncOpts?.accountSettings;
-    logger?.trace({ syncAction, initialSync: !!initialSyncOpts }, 'processing sync action');
-    const { syncAction: { value: action }, index: [type, id, msgId, fromMe] } = syncAction;
-    if (action?.muteAction) {
-        ev.emit('chats.update', [
-            {
-                id,
-                muteEndTime: action.muteAction?.muted ? toNumber(action.muteAction.muteEndTimestamp) : null,
-                conditional: getChatUpdateConditional(id, undefined)
-            }
-        ]);
-    }
-    else if (action?.archiveChatAction || type === 'archive' || type === 'unarchive') {
-        // okay so we've to do some annoying computation here
-        // when we're initially syncing the app state
-        // there are a few cases we need to handle
-        // 1. if the account unarchiveChats setting is true
-        //   a. if the chat is archived, and no further messages have been received -- simple, keep archived
-        //   b. if the chat was archived, and the user received messages from the other person afterwards
-        //		then the chat should be marked unarchved --
-        //		we compare the timestamp of latest message from the other person to determine this
-        // 2. if the account unarchiveChats setting is false -- then it doesn't matter,
-        //	it'll always take an app state action to mark in unarchived -- which we'll get anyway
-        const archiveAction = action?.archiveChatAction;
-        const isArchived = archiveAction ? archiveAction.archived : type === 'archive';
-        // // basically we don't need to fire an "archive" update if the chat is being marked unarchvied
-        // // this only applies for the initial sync
-        // if(isInitialSync && !isArchived) {
-        // 	isArchived = false
-        // }
-        const msgRange = !accountSettings?.unarchiveChats ? undefined : archiveAction?.messageRange;
-        // logger?.debug({ chat: id, syncAction }, 'message range archive')
-        ev.emit('chats.update', [
-            {
-                id,
-                archived: isArchived,
-                conditional: getChatUpdateConditional(id, msgRange)
-            }
-        ]);
-    }
-    else if (action?.markChatAsReadAction) {
-        const markReadAction = action.markChatAsReadAction;
-        // basically we don't need to fire an "read" update if the chat is being marked as read
-        // because the chat is read by default
-        // this only applies for the initial sync
-        const isNullUpdate = isInitialSync && markReadAction.read;
-        ev.emit('chats.update', [
-            {
-                id,
-                unreadCount: isNullUpdate ? null : !!markReadAction?.read ? 0 : -1,
-                conditional: getChatUpdateConditional(id, markReadAction?.messageRange)
-            }
-        ]);
-    }
-    else if (action?.deleteMessageForMeAction || type === 'deleteMessageForMe') {
-        ev.emit('messages.delete', {
-            keys: [
-                {
-                    remoteJid: id,
-                    id: msgId,
-                    fromMe: fromMe === '1'
-                }
-            ]
-        });
-    }
-    else if (action?.contactAction) {
-        const results = processContactAction(action.contactAction, id, logger);
-        emitSyncActionResults(ev, results);
-    }
-    else if (action?.pushNameSetting) {
-        const name = action?.pushNameSetting?.name;
-        if (name && me?.name !== name) {
-            ev.emit('creds.update', { me: { ...me, name } });
-        }
-    }
-    else if (action?.pinAction) {
-        ev.emit('chats.update', [
-            {
-                id,
-                pinned: action.pinAction?.pinned ? toNumber(action.timestamp) : null,
-                conditional: getChatUpdateConditional(id, undefined)
-            }
-        ]);
-    }
-    else if (action?.unarchiveChatsSetting) {
-        const unarchiveChats = !!action.unarchiveChatsSetting.unarchiveChats;
-        ev.emit('creds.update', { accountSettings: { unarchiveChats } });
-        logger?.info(`archive setting updated => '${action.unarchiveChatsSetting.unarchiveChats}'`);
-        if (accountSettings) {
-            accountSettings.unarchiveChats = unarchiveChats;
-        }
-    }
-    else if (action?.starAction || type === 'star') {
-        let starred = action?.starAction?.starred;
-        if (typeof starred !== 'boolean') {
-            starred = syncAction.index[syncAction.index.length - 1] === '1';
-        }
-        ev.emit('messages.update', [
-            {
-                key: { remoteJid: id, id: msgId, fromMe: fromMe === '1' },
-                update: { starred }
-            }
-        ]);
-    }
-    else if (action?.deleteChatAction || type === 'deleteChat') {
-        if (!isInitialSync) {
-            ev.emit('chats.delete', [id]);
-        }
-    }
-    else if (action?.labelEditAction) {
-        const { name, color, deleted, predefinedId } = action.labelEditAction;
-        ev.emit('labels.edit', {
-            id: id,
-            name: name,
-            color: color,
-            deleted: deleted,
-            predefinedId: predefinedId ? String(predefinedId) : undefined
-        });
-    }
-    else if (action?.labelAssociationAction) {
-        ev.emit('labels.association', {
-            type: action.labelAssociationAction.labeled ? 'add' : 'remove',
-            association: type === LabelAssociationType.Chat
-                ? {
-                    type: LabelAssociationType.Chat,
-                    chatId: syncAction.index[2],
-                    labelId: syncAction.index[1]
-                }
-                : {
-                    type: LabelAssociationType.Message,
-                    chatId: syncAction.index[2],
-                    messageId: syncAction.index[3],
-                    labelId: syncAction.index[1]
-                }
-        });
-    }
-    else if (action?.localeSetting?.locale) {
-        ev.emit('settings.update', { setting: 'locale', value: action.localeSetting.locale });
-    }
-    else if (action?.timeFormatAction) {
-        ev.emit('settings.update', { setting: 'timeFormat', value: action.timeFormatAction });
-    }
-    else if (action?.pnForLidChatAction) {
-        if (action.pnForLidChatAction.pnJid) {
-            ev.emit('lid-mapping.update', { lid: id, pn: action.pnForLidChatAction.pnJid });
-        }
-    }
-    else if (action?.privacySettingRelayAllCalls) {
-        ev.emit('settings.update', {
-            setting: 'privacySettingRelayAllCalls',
-            value: action.privacySettingRelayAllCalls
-        });
-    }
-    else if (action?.statusPrivacy) {
-        ev.emit('settings.update', { setting: 'statusPrivacy', value: action.statusPrivacy });
-    }
-    else if (action?.lockChatAction) {
-        ev.emit('chats.lock', { id: id, locked: !!action.lockChatAction.locked });
-    }
-    else if (action?.privacySettingDisableLinkPreviewsAction) {
-        ev.emit('settings.update', {
-            setting: 'disableLinkPreviews',
-            value: action.privacySettingDisableLinkPreviewsAction
-        });
-    }
-    else if (action?.notificationActivitySettingAction?.notificationActivitySetting) {
-        ev.emit('settings.update', {
-            setting: 'notificationActivitySetting',
-            value: action.notificationActivitySettingAction.notificationActivitySetting
-        });
-    }
-    else if (action?.lidContactAction) {
-        ev.emit('contacts.upsert', [
-            {
-                id: id,
-                name: action.lidContactAction.fullName ||
-                    action.lidContactAction.firstName ||
-                    action.lidContactAction.username ||
-                    undefined,
-                username: action.lidContactAction.username || undefined,
-                lid: id,
-                phoneNumber: undefined
-            }
-        ]);
-    }
-    else if (action?.privacySettingChannelsPersonalisedRecommendationAction) {
-        ev.emit('settings.update', {
-            setting: 'channelsPersonalisedRecommendation',
-            value: action.privacySettingChannelsPersonalisedRecommendationAction
-        });
-    }
-    else {
-        logger?.debug({ syncAction, id }, 'unprocessable update');
-    }
-    function getChatUpdateConditional(id, msgRange) {
-        return isInitialSync
-            ? data => {
-                const chat = data.historySets.chats[id] || data.chatUpserts[id];
-                if (chat) {
-                    return msgRange ? isValidPatchBasedOnMessageRange(chat, msgRange) : true;
-                }
-            }
-            : undefined;
-    }
-    function isValidPatchBasedOnMessageRange(chat, msgRange) {
-        const lastMsgTimestamp = Number(msgRange?.lastMessageTimestamp || msgRange?.lastSystemMessageTimestamp || 0);
-        const chatLastMsgTimestamp = Number(chat?.lastMessageRecvTimestamp || 0);
-        return lastMsgTimestamp >= chatLastMsgTimestamp;
-    }
-};
-//# sourceMappingURL=chat-utils.js.map

@@ -57,7 +57,6 @@ export const generateLoginNode = (userJid, config) => {
         pull: true,
         username: +user,
         device: device,
-        // TODO: investigate (hard set as false atm)
         lidDbMigrated: false
     };
     return proto.ClientPayload.fromObject(payload);
@@ -68,10 +67,8 @@ const getPlatformType = (platform) => {
         proto.DeviceProps.PlatformType.CHROME);
 };
 export const generateRegistrationNode = ({ registrationId, signedPreKey, signedIdentityKey }, config) => {
-    // the app version needs to be md5 hashed
-    // and passed in
     const appVersionBuf = createHash('md5')
-        .update(config.version.join('.')) // join as string
+        .update(config.version.join('.'))
         .digest();
     const companion = {
         os: config.browser[0],
@@ -193,11 +190,8 @@ export const configureSuccessfulPairing = (stanza, { advSecretKey, signedIdentit
 };
 export const encodeSignedDeviceIdentity = (account, includeSignatureKey) => {
     account = { ...account };
-    // set to null if we are not to include the signature key
-    // or if we are including the signature key but it is empty
     if (!includeSignatureKey || !account.accountSignatureKey?.length) {
         account.accountSignatureKey = null;
     }
     return proto.ADVSignedDeviceIdentity.encode(account).finish();
 };
-//# sourceMappingURL=validate-connection.js.map

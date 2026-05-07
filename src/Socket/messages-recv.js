@@ -22,506 +22,6 @@ export const makeMessagesRecvSocket = (config) => {
     const sock = makeMessagesSocket(config);
     const { userDevicesCache, devicesMutex, ev, authState, ws, messageMutex, notificationMutex, receiptMutex, signalRepository, query, upsertMessage, resyncAppState, onUnexpectedError, assertSessions, sendNode, relayMessage, sendReceipt, uploadPreKeys, sendPeerDataOperationMessage, messageRetryManager, registerSocketEndHandler, issuePrivacyTokens, fetchAccountReachoutTimelock, placeholderResendCache } = sock;
     const getLIDForPN = signalRepository.lidMapping.getLIDForPN.bind(signalRepository.lidMapping);
-    /** this mutex ensures that each retryRequest will wait for the previous one to finish */
-    const retryMutex = makeMutex();
-    const msgRetryCache = config.msgRetryCounterCache ||
-        new NodeCache({
-            stdTTL: DEFAULT_CACHE_TTLS.MSG_RETRY, // 1 hour
-            useClones: false
-        });
-    const callOfferCache = config.callOfferCache ||
-        new NodeCache({
-            stdTTL: DEFAULT_CACHE_TTLS.CALL_OFFER, // 5 mins
-            useClones: false
-        });
-    // Debounce identity-change session refreshes per JID to avoid bursts
-    const identityAssertDebounce = new NodeCache({ stdTTL: 5, useClones: false });
-    let sendActiveReceipts = false;
-    const fetchMessageHistory = async (count, oldestMsgKey, oldestMsgTimestamp) => {
-        if (!authState.creds.me?.id) {
-            throw new Boom('Not authenticated');
-        }
-        const pdoMessage = {
-            historySyncOnDemandRequest: {
-                chatJid: oldestMsgKey.remoteJid,
-                oldestMsgFromMe: oldestMsgKey.fromMe,
-                oldestMsgId: oldestMsgKey.id,
-                oldestMsgTimestampMs: oldestMsgTimestamp,
-                onDemandMsgCount: count
-            },
-            peerDataOperationRequestType: proto.Message.PeerDataOperationRequestType.HISTORY_SYNC_ON_DEMAND
-        };
-        return sendPeerDataOperationMessage(pdoMessage);
-    };
-    const requestPlaceholderResend = async (messageKey, msgData) => {
-        if (!authState.creds.me?.id) {
-            throw new Boom('Not authenticated');
-        }
-        if (await placeholderResendCache.get(messageKey?.id)) {
-            logger.debug({ messageKey }, 'already requested resend');
-            return;
-        }
-        else {
-            // Store original message data so PDO response handler can preserve
-            // metadata (LID details, timestamps, etc.) that the phone may omit
-            await placeholderResendCache.set(messageKey?.id, msgData || true);
-        }
-        await delay(2000);
-        if (!(await placeholderResendCache.get(messageKey?.id))) {
-            logger.debug({ messageKey }, 'message received while resend requested');
-            return 'RESOLVED';
-        }
-        const pdoMessage = {
-            placeholderMessageResendRequest: [
-                {
-                    messageKey
-                }
-            ],
-            peerDataOperationRequestType: proto.Message.PeerDataOperationRequestType.PLACEHOLDER_MESSAGE_RESEND
-        };
-        setTimeout(async () => {
-            if (await placeholderResendCache.get(messageKey?.id)) {
-                logger.debug({ messageKey }, 'PDO message without response after 8 seconds. Phone possibly offline');
-                await placeholderResendCache.del(messageKey?.id);
-            }
-        }, 8000);
-        return sendPeerDataOperationMessage(pdoMessage);
-    };
-    const handleMexNotification = async (node) => {
-        const updateNode = getBinaryNodeChild(node, 'update');
-        if (updateNode) {
-            const opName = updateNode.attrs?.op_name;
-            if (!opName) {
-                logger.warn({ node: binaryNodeToString(node) }, 'mex notification missing op_name, fallback to legacy');
-                await handleLegacyMexNewsletterNotification(node);
-                return;
-            }
-            let mexResponse;
-            try {
-                mexResponse = JSON.parse(updateNode.content.toString());
-            }
-            catch (error) {
-                logger.error({ err: error, opName }, 'failed to parse mex notification JSON');
-                return;
-            }
-            if (mexResponse.errors?.length) {
-                logger.warn({ errors: mexResponse.errors, opName }, 'mex notification has GQL errors');
-                return;
-            }
-            const data = mexResponse.data;
-            if (!data) {
-                logger.warn({ opName }, 'mex notification has null data');
-                return;
-            }
-            logger.debug({ opName }, 'processing mex notification');
-            switch (opName) {
-                case 'NotificationUserReachoutTimelockUpdate':
-                    handleReachoutTimelockNotification(data);
-                    break;
-                case 'MessageCappingInfoNotification':
-                    handleMessageCappingNotification(data);
-                    break;
-                // newsletter ops still use the legacy <mex> child structure
-                case 'NotificationNewsletterUpdate':
-                case 'NotificationLinkedProfilesUpdates':
-                case 'NotificationNewsletterAdminPromote':
-                case 'NotificationNewsletterAdminDemote':
-                case 'NotificationNewsletterUserSettingChange':
-                case 'NotificationNewsletterJoin':
-                case 'NotificationNewsletterLeave':
-                case 'NotificationNewsletterStateChange':
-                case 'NotificationNewsletterAdminMetadataUpdate':
-                case 'NotificationNewsletterOwnerUpdate':
-                case 'NotificationNewsletterAdminInviteRevoke':
-                case 'NotificationNewsletterWamoSubStatusChange':
-                case 'NotificationNewsletterBlockUser':
-                case 'NotificationNewsletterPaidPartnership':
-                case 'NotificationNewsletterMilestone':
-                case 'NewsletterResponseStateUpdate':
-                    await handleLegacyMexNewsletterNotification(node);
-                    break;
-                default:
-                    logger.debug({ opName }, 'unhandled mex notification');
-                    break;
-            }
-            return;
-        }
-        await handleLegacyMexNewsletterNotification(node);
-    };
-    const handleReachoutTimelockNotification = (data) => {
-        const payload = data.xwa2_notify_account_reachout_timelock;
-        if (!payload) {
-            logger.warn('reachout timelock notification missing payload');
-            return;
-        }
-        if (!payload.is_active) {
-            logger.info('reachout timelock restriction lifted');
-            ev.emit('connection.update', {
-                reachoutTimeLock: {
-                    isActive: false,
-                    enforcementType: ReachoutTimelockEnforcementType.DEFAULT
-                }
-            });
-            return;
-        }
-        // WA Web defaults to now+60s when the server omits the expiry
-        const timeEnforcementEnds = payload.time_enforcement_ends
-            ? new Date(parseInt(payload.time_enforcement_ends, 10) * 1000)
-            : new Date(Date.now() + 60000);
-        const enforcementType = isValidEnforcementType(payload.enforcement_type)
-            ? payload.enforcement_type
-            : ReachoutTimelockEnforcementType.DEFAULT;
-        logger.info({ enforcementType, timeEnforcementEnds }, 'reachout timelock restriction set');
-        ev.emit('connection.update', {
-            reachoutTimeLock: {
-                isActive: true,
-                timeEnforcementEnds,
-                enforcementType
-            }
-        });
-    };
-    const handleMessageCappingNotification = (data) => {
-        const payload = data.xwa2_notify_new_chat_messages_capping_info_update;
-        if (!payload) {
-            logger.warn('message capping notification missing payload');
-            return;
-        }
-        logger.info({ payload }, 'received message capping update');
-        ev.emit('message-capping.update', payload);
-    };
-    const handleLegacyMexNewsletterNotification = async (node) => {
-        const mexNode = getBinaryNodeChild(node, 'mex');
-        const updateNode = mexNode?.content ? null : getBinaryNodeChild(node, 'update') || getAllBinaryNodeChildren(node)[0];
-        const payloadNode = mexNode?.content ? mexNode : updateNode;
-        if (!payloadNode?.content) {
-            logger.warn({ node: binaryNodeToString(node) }, 'invalid mex newsletter notification');
-            return;
-        }
-        let data;
-        try {
-            const payloadContent = payloadNode.content;
-            if (Array.isArray(payloadContent)) {
-                logger.warn({ payloadNode }, 'invalid mex newsletter notification payload format');
-                return;
-            }
-            const contentBuf = typeof payloadContent === 'string' ? Buffer.from(payloadContent, 'binary') : Buffer.from(payloadContent);
-            data = JSON.parse(contentBuf.toString());
-        }
-        catch (error) {
-            logger.error({ err: error, node: binaryNodeToString(node) }, 'failed to parse mex newsletter notification');
-            return;
-        }
-        const operation = data?.operation ?? payloadNode?.attrs?.op_name;
-        let updates = data?.updates;
-        if (!updates) {
-            const linkedProfiles = data?.data?.xwa2_notify_linked_profiles;
-            if (linkedProfiles) {
-                updates = [linkedProfiles];
-            }
-        }
-        if (!updates || !operation) {
-            logger.warn({ data }, 'invalid mex newsletter notification content');
-            return;
-        }
-        logger.info({ operation, updates }, 'got mex newsletter notification');
-        switch (operation) {
-            case 'NotificationNewsletterUpdate':
-                for (const update of updates) {
-                    if (update.jid && update.settings && Object.keys(update.settings).length > 0) {
-                        ev.emit('newsletter-settings.update', {
-                            id: update.jid,
-                            update: update.settings
-                        });
-                    }
-                }
-                break;
-            case 'NotificationNewsletterAdminPromote':
-                for (const update of updates) {
-                    if (update.jid && update.user) {
-                        ev.emit('newsletter-participants.update', {
-                            id: update.jid,
-                            author: node.attrs.from,
-                            user: update.user,
-                            new_role: 'ADMIN',
-                            action: 'promote'
-                        });
-                    }
-                }
-                break;
-            case 'NotificationLinkedProfilesUpdates':
-                for (const update of updates) {
-                    const lid = update?.jid;
-                    const addedProfiles = Array.isArray(update?.added_profiles) ? update.added_profiles : [];
-                    const mappings = [];
-                    for (const profile of addedProfiles) {
-                        const pn = typeof profile === 'string' ? profile : (profile?.pn ?? profile?.jid ?? null);
-                        if (lid && pn) {
-                            const mapping = { lid, pn };
-                            ev.emit('lid-mapping.update', mapping);
-                            mappings.push(mapping);
-                        }
-                    }
-                    await signalRepository.lidMapping.storeLIDPNMappings(mappings);
-                }
-                break;
-            default:
-                logger.info({ operation, data }, 'unhandled mex newsletter notification');
-                break;
-        }
-    };
-    // Handles newsletter notifications
-    const handleNewsletterNotification = async (node) => {
-        const from = node.attrs.from;
-        const children = getAllBinaryNodeChildren(node);
-        const author = node.attrs.participant;
-        for (const child of children) {
-            logger.debug({ from, child }, 'got newsletter notification');
-            switch (child.tag) {
-                case 'reaction': {
-                    const reactionUpdate = {
-                        id: from,
-                        server_id: child.attrs.message_id,
-                        reaction: {
-                            code: getBinaryNodeChildString(child, 'reaction'),
-                            count: 1
-                        }
-                    };
-                    ev.emit('newsletter.reaction', reactionUpdate);
-                    break;
-                }
-                case 'view': {
-                    const viewUpdate = {
-                        id: from,
-                        server_id: child.attrs.message_id,
-                        count: parseInt(child.content?.toString() || '0', 10)
-                    };
-                    ev.emit('newsletter.view', viewUpdate);
-                    break;
-                }
-                case 'participant': {
-                    const participantUpdate = {
-                        id: from,
-                        author,
-                        user: child.attrs.jid,
-                        action: child.attrs.action,
-                        new_role: child.attrs.role
-                    };
-                    ev.emit('newsletter-participants.update', participantUpdate);
-                    break;
-                }
-                case 'update': {
-                    const settingsNode = getBinaryNodeChild(child, 'settings');
-                    if (settingsNode) {
-                        const update = {};
-                        const nameNode = getBinaryNodeChild(settingsNode, 'name');
-                        if (nameNode?.content)
-                            update.name = nameNode.content.toString();
-                        const descriptionNode = getBinaryNodeChild(settingsNode, 'description');
-                        if (descriptionNode?.content)
-                            update.description = descriptionNode.content.toString();
-                        ev.emit('newsletter-settings.update', {
-                            id: from,
-                            update
-                        });
-                    }
-                    break;
-                }
-                case 'message': {
-                    const plaintextNode = getBinaryNodeChild(child, 'plaintext');
-                    if (plaintextNode?.content) {
-                        try {
-                            const contentBuf = typeof plaintextNode.content === 'string'
-                                ? Buffer.from(plaintextNode.content, 'binary')
-                                : Buffer.from(plaintextNode.content);
-                            const messageProto = proto.Message.decode(contentBuf).toJSON();
-                            const fullMessage = proto.WebMessageInfo.fromObject({
-                                key: {
-                                    remoteJid: from,
-                                    id: child.attrs.message_id || child.attrs.server_id,
-                                    fromMe: false // TODO: is this really true though
-                                },
-                                message: messageProto,
-                                messageTimestamp: +child.attrs.t
-                            }).toJSON();
-                            await upsertMessage(fullMessage, 'append');
-                            logger.debug('Processed plaintext newsletter message');
-                        }
-                        catch (error) {
-                            logger.error({ error }, 'Failed to decode plaintext newsletter message');
-                        }
-                    }
-                    break;
-                }
-                default:
-                    logger.warn({ node, child }, 'Unknown newsletter notification child');
-                    break;
-            }
-        }
-    };
-    const sendMessageAck = async (node, errorCode) => {
-        const stanza = buildAckStanza(node, errorCode, authState.creds.me.id);
-        logger.debug({ recv: { tag: node.tag, attrs: node.attrs }, sent: stanza.attrs }, 'sent ack');
-        await sendNode(stanza);
-    };
-    const rejectCall = async (callId, callFrom) => {
-        const stanza = {
-            tag: 'call',
-            attrs: {
-                from: authState.creds.me.id,
-                to: callFrom
-            },
-            content: [
-                {
-                    tag: 'reject',
-                    attrs: {
-                        'call-id': callId,
-                        'call-creator': callFrom,
-                        count: '0'
-                    },
-                    content: undefined
-                }
-            ]
-        };
-        await query(stanza);
-    };
-    const sendRetryRequest = async (node, forceIncludeKeys = false) => {
-        const { fullMessage } = decodeMessageNode(node, authState.creds.me.id, authState.creds.me.lid || '');
-        const { key: msgKey } = fullMessage;
-        const msgId = msgKey.id;
-        if (messageRetryManager) {
-            // Check if we've exceeded max retries using the new system
-            if (messageRetryManager.hasExceededMaxRetries(msgId)) {
-                logger.debug({ msgId }, 'reached retry limit with new retry manager, clearing');
-                messageRetryManager.markRetryFailed(msgId);
-                return;
-            }
-            // Increment retry count using new system
-            const retryCount = messageRetryManager.incrementRetryCount(msgId);
-            // Use the new retry count for the rest of the logic
-            const key = `${msgId}:${msgKey?.participant}`;
-            await msgRetryCache.set(key, retryCount);
-        }
-        else {
-            // Fallback to old system
-            const key = `${msgId}:${msgKey?.participant}`;
-            let retryCount = (await msgRetryCache.get(key)) || 0;
-            if (retryCount >= maxMsgRetryCount) {
-                logger.debug({ retryCount, msgId }, 'reached retry limit, clearing');
-                await msgRetryCache.del(key);
-                return;
-            }
-            retryCount += 1;
-            await msgRetryCache.set(key, retryCount);
-        }
-        const key = `${msgId}:${msgKey?.participant}`;
-        const retryCount = (await msgRetryCache.get(key)) || 1;
-        const { account, signedPreKey, signedIdentityKey: identityKey } = authState.creds;
-        const fromJid = node.attrs.from;
-        // Check if we should recreate the session
-        let shouldRecreateSession = false;
-        let recreateReason = '';
-        if (enableAutoSessionRecreation && messageRetryManager && retryCount > 1) {
-            try {
-                // Check if we have a session with this JID
-                const sessionId = signalRepository.jidToSignalProtocolAddress(fromJid);
-                const hasSession = await signalRepository.validateSession(fromJid);
-                const result = messageRetryManager.shouldRecreateSession(fromJid, hasSession.exists);
-                shouldRecreateSession = result.recreate;
-                recreateReason = result.reason;
-                if (shouldRecreateSession) {
-                    logger.debug({ fromJid, retryCount, reason: recreateReason }, 'recreating session for retry');
-                    // Delete existing session to force recreation
-                    await authState.keys.set({ session: { [sessionId]: null } });
-                    forceIncludeKeys = true;
-                }
-            }
-            catch (error) {
-                logger.warn({ error, fromJid }, 'failed to check session recreation');
-            }
-        }
-        if (retryCount <= 2) {
-            // Use new retry manager for phone requests if available
-            if (messageRetryManager) {
-                // Schedule phone request with delay (like whatsmeow)
-                messageRetryManager.schedulePhoneRequest(msgId, async () => {
-                    try {
-                        const requestId = await requestPlaceholderResend(msgKey);
-                        logger.debug(`sendRetryRequest: requested placeholder resend (${requestId}) for message ${msgId} (scheduled)`);
-                    }
-                    catch (error) {
-                        logger.warn({ error, msgId }, 'failed to send scheduled phone request');
-                    }
-                });
-            }
-            else {
-                // Fallback to immediate request
-                const msgId = await requestPlaceholderResend(msgKey);
-                logger.debug(`sendRetryRequest: requested placeholder resend for message ${msgId}`);
-            }
-        }
-        const deviceIdentity = encodeSignedDeviceIdentity(account, true);
-        await authState.keys.transaction(async () => {
-            const receipt = {
-                tag: 'receipt',
-                attrs: {
-                    id: msgId,
-                    type: 'retry',
-                    to: node.attrs.from
-                },
-                content: [
-                    {
-                        tag: 'retry',
-                        attrs: {
-                            count: retryCount.toString(),
-                            id: node.attrs.id,
-                            t: node.attrs.t,
-                            v: '1',
-                            // ADD ERROR FIELD
-                            error: '0'
-                        }
-                    },
-                    {
-                        tag: 'registration',
-                        attrs: {},
-                        content: encodeBigEndian(authState.creds.registrationId)
-                    }
-                ]
-            };
-            if (node.attrs.recipient) {
-                receipt.attrs.recipient = node.attrs.recipient;
-            }
-            if (node.attrs.participant) {
-                receipt.attrs.participant = node.attrs.participant;
-            }
-            if (retryCount > 1 || forceIncludeKeys || shouldRecreateSession) {
-                const { update, preKeys } = await getNextPreKeys(authState, 1);
-                const [keyId] = Object.keys(preKeys);
-                const key = preKeys[+keyId];
-                const content = receipt.content;
-                content.push({
-                    tag: 'keys',
-                    attrs: {},
-                    content: [
-                        { tag: 'type', attrs: {}, content: Buffer.from(KEY_BUNDLE_TYPE) },
-                        { tag: 'identity', attrs: {}, content: identityKey.public },
-                        xmppPreKey(key, +keyId),
-                        xmppSignedPreKey(signedPreKey),
-                        { tag: 'device-identity', attrs: {}, content: deviceIdentity }
-                    ]
-                });
-                ev.emit('creds.update', update);
-            }
-            await sendNode(receipt);
-            logger.info({ msgAttrs: node.attrs, retryCount }, 'sent retry receipt');
-        }, authState?.creds?.me?.id || 'sendRetryRequest');
-    };
-    // Mirrors WAWeb/Handle/PreKeyLow.js: skip a re-issued notification with the same stanza id.
-    const inFlightPreKeyLow = new Set();
-    /**
-     * Fire-and-forget tctoken re-issuance after a peer's device identity changed.
-     * Mirrors WAWebSendTcTokenWhenDeviceIdentityChange — runs in parallel with
-     * the session refresh (not after it).
-     */
     const reissueTcTokenAfterIdentityChange = (from) => {
         void (async () => {
             const normalizedJid = jidNormalizedUser(from);
@@ -585,7 +85,6 @@ export const makeMessagesRecvSocket = (config) => {
         }
     };
     const handleGroupNotification = (fullNode, child, msg) => {
-        // TODO: Support PN/LID (Here is only LID now)
         const actingParticipantLid = fullNode.attrs.participant;
         const actingParticipantPn = fullNode.attrs.participant_pn;
         const actingParticipantUsername = fullNode.attrs.participant_username;
@@ -635,7 +134,6 @@ export const makeMessagesRecvSocket = (config) => {
                 const stubType = `GROUP_PARTICIPANT_${child.tag.toUpperCase()}`;
                 msg.messageStubType = WAMessageStubType[stubType];
                 const participants = getBinaryNodeChildren(child, 'participant').map(({ attrs }) => {
-                    // TODO: Store LID MAPPINGS
                     return {
                         id: attrs.jid,
                         phoneNumber: isLidUser(attrs.jid) && isPnUser(attrs.phone_number) ? attrs.phone_number : undefined,
@@ -645,8 +143,6 @@ export const makeMessagesRecvSocket = (config) => {
                     };
                 });
                 if (participants.length === 1 &&
-                    // if recv. "remove" message and sender removed themselves
-                    // mark as left
                     (areJidsSameUser(participants[0].id, actingParticipantLid) ||
                         areJidsSameUser(participants[0].id, actingParticipantPn)) &&
                     child.tag === 'remove') {
@@ -701,7 +197,6 @@ export const makeMessagesRecvSocket = (config) => {
                 break;
             case 'revoked_membership_requests':
                 const isDenied = areJidsSameUser(affectedParticipantLid, actingParticipantLid);
-                // TODO: LIDMAPPING SUPPORT
                 msg.messageStubType = WAMessageStubType.GROUP_MEMBERSHIP_JOIN_APPROVAL_REQUEST_NON_ADMIN_ADD;
                 msg.messageStubParameters = [
                     JSON.stringify({ lid: affectedParticipantLid, pn: affectedParticipantPn }),
@@ -760,9 +255,6 @@ export const makeMessagesRecvSocket = (config) => {
                 }
                 const existingCache = (await userDevicesCache?.get(user)) || [];
                 if (!existingCache.length) {
-                    // No baseline yet; skip applying the delta so getUSyncDevices can
-                    // later fetch the full device list. Caching just the notification
-                    // entries would make a partial list look authoritative.
                     logger.debug({ user, tag }, 'device list not cached, deferring to USync refresh');
                     continue;
                 }
@@ -806,7 +298,6 @@ export const makeMessagesRecvSocket = (config) => {
                 await handleMexNotification(node);
                 break;
             case 'w:gp2':
-                // TODO: HANDLE PARTICIPANT_PN
                 handleGroupNotification(node, child, result);
                 break;
             case 'mediaretry':
@@ -834,7 +325,6 @@ export const makeMessagesRecvSocket = (config) => {
             case 'picture':
                 const setPicture = getBinaryNodeChild(node, 'set');
                 const delPicture = getBinaryNodeChild(node, 'delete');
-                // TODO: WAJIDHASH stuff proper support inhouse
                 ev.emit('contacts.update', [
                     {
                         id: jidNormalizedUser(node?.attrs?.from) || (setPicture || delPicture)?.attrs?.hash || '',
@@ -948,11 +438,6 @@ export const makeMessagesRecvSocket = (config) => {
             return result;
         }
     };
-    /**
-     * In-memory cache of storage JIDs with stored tctokens, seeded from the persisted index.
-     * Used to coalesce writes during a session; pruning always re-reads the persisted index
-     * to cover writes made by other layers (e.g. history sync).
-     */
     const tcTokenKnownJids = new Set();
     const tcTokenIndexLoaded = (async () => {
         try {
@@ -971,8 +456,6 @@ export const makeMessagesRecvSocket = (config) => {
             clearTimeout(tcTokenIndexTimer);
             tcTokenIndexTimer = undefined;
         }
-        // Merge with whatever is already persisted so we don't clobber writes from other
-        // paths (history sync, concurrent sessions on the same store).
         const write = await buildMergedTcTokenIndexWrite(authState.keys, tcTokenKnownJids);
         return authState.keys.set({ tctoken: write });
     }
@@ -998,8 +481,6 @@ export const makeMessagesRecvSocket = (config) => {
         if (!tokensNode)
             return;
         const from = jidNormalizedUser(node.attrs.from);
-        // WA Web uses: senderLid ?? toLid(from) for the storage key
-        // The sender_lid attribute provides the LID directly when available
         const senderLid = node.attrs.sender_lid && isLidUser(jidNormalizedUser(node.attrs.sender_lid))
             ? jidNormalizedUser(node.attrs.sender_lid)
             : undefined;
@@ -1042,26 +523,21 @@ export const makeMessagesRecvSocket = (config) => {
         const participant = key.participant || remoteJid;
         const retryCount = +retryNode.attrs.count || 1;
         const msgId = ids[0];
-        // Try to get messages from cache first, then fallback to getMessage
         const msgs = [];
         for (const id of ids) {
             let msg;
-            // Try to get from retry cache first if enabled
             if (messageRetryManager) {
                 const cachedMsg = messageRetryManager.getRecentMessage(remoteJid, id);
                 if (cachedMsg) {
                     msg = cachedMsg.message;
                     logger.debug({ jid: remoteJid, id }, 'found message in retry cache');
-                    // Mark retry as successful since we found the message
                     messageRetryManager.markRetrySuccess(id);
                 }
             }
-            // Fallback to getMessage if not found in cache
             if (!msg) {
                 msg = await getMessage({ ...key, id });
                 if (msg) {
                     logger.debug({ jid: remoteJid, id }, 'found message via getMessage');
-                    // Also mark as successful if found via getMessage
                     if (messageRetryManager) {
                         messageRetryManager.markRetrySuccess(id);
                     }
@@ -1069,9 +545,6 @@ export const makeMessagesRecvSocket = (config) => {
             }
             msgs.push(msg);
         }
-        // if it's the primary jid sending the request
-        // just re-send the message to everyone
-        // prevents the first message decryption failure
         const sendToAll = !jidDecode(participant)?.device;
         const sessionId = signalRepository.jidToSignalProtocolAddress(participant);
         let injectedFromBundle = false;
@@ -1180,8 +653,6 @@ export const makeMessagesRecvSocket = (config) => {
                 receiptMutex.mutex(async () => {
                     const status = getStatusFromReceiptType(attrs.type);
                     if (typeof status !== 'undefined' &&
-                        // basically, we only want to know when a message from us has been delivered to/read by the other person
-                        // or another device of ours has read some messages
                         (status >= proto.WebMessageInfo.Status.SERVER_ACK || !isNodeFromMe)) {
                         if (isJidGroup(remoteJid) || isJidStatusBroadcast(remoteJid)) {
                             if (attrs.participant) {
@@ -1203,7 +674,6 @@ export const makeMessagesRecvSocket = (config) => {
                         }
                     }
                     if (attrs.type === 'retry') {
-                        // correctly set who is asking for the retry
                         key.participant = key.participant || attrs.from;
                         const retryNode = getBinaryNodeChild(node, 'retry');
                         if (ids[0] && key.participant && (await willSendMessageAgain(ids[0], key.participant))) {
@@ -1265,7 +735,6 @@ export const makeMessagesRecvSocket = (config) => {
     };
     const handleMessage = async (node) => {
         const encNode = getBinaryNodeChild(node, 'enc');
-        // TODO: temporary fix for crashes and issues resulting of failed msmsg decryption
         if (encNode?.attrs.type === 'msmsg') {
             logger.debug({ key: node.attrs.key }, 'ignored msmsg');
             await sendMessageAck(node, NACK_REASONS.MissingMessageSecret);
@@ -1275,7 +744,6 @@ export const makeMessagesRecvSocket = (config) => {
         try {
             const { fullMessage: msg, category, author, decrypt } = decryptMessageNode(node, authState.creds.me.id, authState.creds.me.lid || '', signalRepository, logger);
             const alt = msg.key.participantAlt || msg.key.remoteJidAlt;
-            // store new mappings we didn't have before
             if (!!alt) {
                 const altServer = jidDecode(alt)?.server;
                 const primaryJid = msg.key.participant || msg.key.remoteJid;
@@ -1295,15 +763,12 @@ export const makeMessagesRecvSocket = (config) => {
                 if (msg.key?.remoteJid && msg.key?.id && msg.message && messageRetryManager) {
                     messageRetryManager.addRecentMessage(msg.key.remoteJid, msg.key.id, msg.message);
                 }
-                // message failed to decrypt
                 if (msg.messageStubType === proto.WebMessageInfo.StubType.CIPHERTEXT && msg.category !== 'peer') {
                     if (msg?.messageStubParameters?.[0] === MISSING_KEYS_ERROR_TEXT) {
                         acked = true;
                         return sendMessageAck(node, NACK_REASONS.ParsingError);
                     }
                     if (msg.messageStubParameters?.[0] === NO_MESSAGE_FOUND_ERROR_TEXT) {
-                        // Message arrived without encryption (e.g. CTWA ads messages).
-                        // Check if this is eligible for placeholder resend (matching WA Web filters).
                         const unavailableNode = getBinaryNodeChild(node, 'unavailable');
                         const unavailableType = unavailableNode?.attrs?.type;
                         if (unavailableType === 'bot_unavailable_fanout' ||
@@ -1319,18 +784,12 @@ export const makeMessagesRecvSocket = (config) => {
                             acked = true;
                             return sendMessageAck(node);
                         }
-                        // Request the real content from the phone via placeholder resend PDO.
-                        // Upsert the CIPHERTEXT stub as a placeholder (like WA Web's processPlaceholderMsg),
-                        // and store the requestId in stubParameters[1] so users can correlate
-                        // with the incoming PDO response event.
                         const cleanKey = {
                             remoteJid: msg.key.remoteJid,
                             fromMe: msg.key.fromMe,
                             id: msg.key.id,
                             participant: msg.key.participant
                         };
-                        // Cache the original message metadata so the PDO response handler
-                        // can preserve key fields (LID details etc.) that the phone may omit
                         const msgData = {
                             key: msg.key,
                             messageTimestamp: msg.messageTimestamp,
@@ -1355,10 +814,8 @@ export const makeMessagesRecvSocket = (config) => {
                         });
                         acked = true;
                         await sendMessageAck(node);
-                        // Don't return — fall through to upsertMessage so the stub is emitted
                     }
                     else {
-                        // Skip retry for expired status messages (>24h old)
                         if (isJidStatusBroadcast(msg.key.remoteJid)) {
                             const messageAge = unixTimestampSeconds() - toNumber(msg.messageTimestamp);
                             if (messageAge > STATUS_EXPIRY_SECONDS) {
@@ -1368,7 +825,6 @@ export const makeMessagesRecvSocket = (config) => {
                             }
                         }
                         logger.debug('[handleMessage] Attempting retry request for failed decryption');
-                        // WAWeb only retry-receipts here; server emits PreKeyLow if prekeys run low.
                         await retryMutex.mutex(async () => {
                             try {
                                 if (!ws.isOpen) {
@@ -1395,19 +851,15 @@ export const makeMessagesRecvSocket = (config) => {
                     }
                     const isNewsletter = isJidNewsletter(msg.key.remoteJid);
                     if (!isNewsletter) {
-                        // no type in the receipt => message delivered
                         let type = undefined;
                         let participant = msg.key.participant;
                         if (category === 'peer') {
-                            // special peer message
                             type = 'peer_msg';
                         }
                         else if (msg.key.fromMe) {
-                            // message was sent by us from a different device
                             type = 'sender';
-                            // need to specially handle this case
                             if (isLidUser(msg.key.remoteJid) || isLidUser(msg.key.remoteJidAlt)) {
-                                participant = author; // TODO: investigate sending receipts to LIDs and not PNs
+                                participant = author;
                             }
                         }
                         else if (!sendActiveReceipts) {
@@ -1415,11 +867,10 @@ export const makeMessagesRecvSocket = (config) => {
                         }
                         acked = true;
                         await sendReceipt(msg.key.remoteJid, participant, [msg.key.id], type);
-                        // send ack for history message
                         const isAnyHistoryMsg = getHistoryMsg(msg.message);
                         if (isAnyHistoryMsg) {
                             const jid = jidNormalizedUser(msg.key.remoteJid);
-                            await sendReceipt(jid, undefined, [msg.key.id], 'hist_sync'); // TODO: investigate
+                            await sendReceipt(jid, undefined, [msg.key.id], 'hist_sync');
                         }
                     }
                     else {
@@ -1472,13 +923,11 @@ export const makeMessagesRecvSocket = (config) => {
                 await callOfferCache.set(call.id, call);
             }
             const existingCall = await callOfferCache.get(call.id);
-            // use existing call info to populate this event
             if (existingCall) {
                 call.isVideo = existingCall.isVideo;
                 call.isGroup = existingCall.isGroup;
                 call.callerPn = call.callerPn || existingCall.callerPn;
             }
-            // delete data once call has ended
             if (status === 'reject' || status === 'accept' || status === 'timeout' || status === 'terminate') {
                 await callOfferCache.del(call.id);
             }
@@ -1493,29 +942,9 @@ export const makeMessagesRecvSocket = (config) => {
     };
     const handleBadAck = async ({ attrs }) => {
         const key = { remoteJid: attrs.from, fromMe: true, id: attrs.id };
-        // WARNING: REFRAIN FROM ENABLING THIS FOR NOW. IT WILL CAUSE A LOOP
-        // // current hypothesis is that if pash is sent in the ack
-        // // it means -- the message hasn't reached all devices yet
-        // // we'll retry sending the message here
-        // if(attrs.phash) {
-        // 	logger.info({ attrs }, 'received phash in ack, resending message...')
-        // 	const msg = await getMessage(key)
-        // 	if(msg) {
-        // 		await relayMessage(key.remoteJid!, msg, { messageId: key.id!, useUserDevicesCache: false })
-        // 	} else {
-        // 		logger.warn({ attrs }, 'could not send message again, as it was not found')
-        // 	}
-        // }
-        // error in acknowledgement,
-        // device could not display the message
         if (attrs.error) {
             const isReachoutTimelocked = attrs.error === String(NACK_REASONS.SenderReachoutTimelocked);
             if (attrs.error === SERVER_ERROR_CODES.MessageAccountRestriction) {
-                // 463 = 1:1 message missing privacy token (tctoken). Usually means the
-                // account is restricted: WhatsApp blocks starting new chats but preserves
-                // existing ones, since established chats already carry a tctoken.
-                // WA Web prevents this client-side (disables the compose bar).
-                // No retry — retrying counts as another "reach out" and worsens the restriction.
                 logger.warn({ msgId: attrs.id, from: attrs.from }, 'error 463: account restricted or missing tctoken for contact');
                 const ackFrom = attrs.from;
                 if (ackFrom && !inFlight463Recoveries.has(ackFrom)) {
@@ -1548,7 +977,6 @@ export const makeMessagesRecvSocket = (config) => {
                 logger.warn({ msgId: attrs.id, from: attrs.from }, 'smax-invalid (479): stanza rejected by server — likely stale device session or malformed addressing');
             }
             else if (isReachoutTimelocked) {
-                // user is temporarily restricted, fetch current restriction details
                 await fetchAccountReachoutTimelock().catch(err => logger.warn({ err }, 'failed to fetch reachout timelock'));
                 logger.warn({ attrs }, 'received error in ack');
             }
@@ -1566,8 +994,6 @@ export const makeMessagesRecvSocket = (config) => {
             ]);
         }
     };
-    /// processes a node with the given function
-    /// and adds the task to the existing buffer if we're buffering events
     const processNodeWithBuffer = async (node, identifier, exec) => {
         ev.buffer();
         await execTask();
@@ -1587,7 +1013,6 @@ export const makeMessagesRecvSocket = (config) => {
         yieldToEventLoop: () => new Promise(resolve => setImmediate(resolve))
     });
     const processNode = async (type, node, identifier, exec) => {
-        // Fast path: ack and drop ignored JIDs before entering the buffer/queue
         const from = node.attrs.from;
         let ignoreJid = from;
         if (type === 'receipt' && from) {
@@ -1608,7 +1033,6 @@ export const makeMessagesRecvSocket = (config) => {
             await processNodeWithBuffer(node, identifier, exec);
         }
     };
-    // recv a message
     ws.on('CB:message', async (node) => {
         await processNode('message', node, 'processing message', handleMessage);
     });
@@ -1628,7 +1052,6 @@ export const makeMessagesRecvSocket = (config) => {
         if (!call) {
             return;
         }
-        // missed call + group call notification message generation
         if (call.status === 'timeout' || (call.status === 'offer' && call.isGroup)) {
             const msg = {
                 key: {
@@ -1655,118 +1078,16 @@ export const makeMessagesRecvSocket = (config) => {
             await upsertMessage(protoMsg, call.offline ? 'append' : 'notify');
         }
     });
-    /** timestamp of last tctoken prune run — throttles to once per 24h */
-    let lastTcTokenPruneTs = 0;
-    /** dedupe in-flight 463 recovery token issuance by target JID */
     const inFlight463Recoveries = new Set();
     ev.on('connection.update', ({ isOnline, connection }) => {
         if (typeof isOnline !== 'undefined') {
             sendActiveReceipts = isOnline;
             logger.trace(`sendActiveReceipts set to "${sendActiveReceipts}"`);
         }
-        // Flush pending tctoken index save on disconnect to avoid writing after close
         if (connection === 'close' && tcTokenIndexTimer) {
             clearTimeout(tcTokenIndexTimer);
             tcTokenIndexTimer = undefined;
-            // Best-effort flush — may fail if store is already closed
             try {
                 void Promise.resolve(flushTcTokenIndex()).catch(() => { });
             }
             catch {
-                /* ignore sync errors */
-            }
-        }
-        // Prune expired tctokens when coming online, at most once per 24 hours
-        // Matches WA Web's CLEAN_TC_TOKENS task
-        // Note: don't gate on tcTokenKnownJids.size — the index may still be loading
-        if (isOnline) {
-            const now = Date.now();
-            const DAY_MS = 24 * 60 * 60 * 1000;
-            if (now - lastTcTokenPruneTs >= DAY_MS) {
-                lastTcTokenPruneTs = now;
-                void pruneExpiredTcTokens();
-            }
-        }
-    });
-    registerSocketEndHandler(() => {
-        if (!config.msgRetryCounterCache && msgRetryCache.close) {
-            msgRetryCache.close();
-        }
-        if (!config.callOfferCache && callOfferCache.close) {
-            callOfferCache.close();
-        }
-        identityAssertDebounce.close();
-        sendActiveReceipts = false;
-    });
-    async function pruneExpiredTcTokens() {
-        try {
-            await tcTokenIndexLoaded;
-            // Union with the persisted index picks up JIDs added by other layers
-            // (history sync) without needing inter-module wiring.
-            const persisted = await readTcTokenIndex(authState.keys);
-            const allJids = new Set(tcTokenKnownJids);
-            for (const jid of persisted)
-                allJids.add(jid);
-            if (!allJids.size)
-                return;
-            const jids = [...allJids];
-            const allTokens = await authState.keys.get('tctoken', jids);
-            const writes = {};
-            const survivors = new Set();
-            let mutated = 0;
-            for (const jid of jids) {
-                const entry = allTokens[jid];
-                if (!entry) {
-                    // Tracked but nothing in store — drop from index.
-                    mutated++;
-                    continue;
-                }
-                const hasPeerToken = !!entry.token?.length;
-                const peerTokenExpired = hasPeerToken && isTcTokenExpired(entry.timestamp);
-                const hasSenderTs = entry.senderTimestamp !== undefined;
-                const senderTsExpired = hasSenderTs && isTcTokenExpired(entry.senderTimestamp);
-                const keepPeerToken = hasPeerToken && !peerTokenExpired;
-                const keepSenderTs = hasSenderTs && !senderTsExpired;
-                if (!keepPeerToken && !keepSenderTs) {
-                    writes[jid] = null;
-                    mutated++;
-                }
-                else if (peerTokenExpired && keepSenderTs) {
-                    writes[jid] = { token: Buffer.alloc(0), senderTimestamp: entry.senderTimestamp };
-                    survivors.add(jid);
-                    mutated++;
-                }
-                else {
-                    survivors.add(jid);
-                }
-            }
-            if (mutated === 0)
-                return;
-            await authState.keys.set({
-                tctoken: {
-                    ...writes,
-                    [TC_TOKEN_INDEX_KEY]: {
-                        token: Buffer.from(JSON.stringify([...survivors]))
-                    }
-                }
-            });
-            tcTokenKnownJids.clear();
-            for (const jid of survivors)
-                tcTokenKnownJids.add(jid);
-            logger.debug({ mutated, remaining: survivors.size }, 'pruned expired tctokens');
-        }
-        catch (err) {
-            logger.warn({ err: err?.message }, 'failed to prune expired tctokens');
-        }
-    }
-    return {
-        ...sock,
-        sendMessageAck,
-        sendRetryRequest,
-        rejectCall,
-        fetchMessageHistory,
-        requestPlaceholderResend,
-        messageRetryManager
-    };
-};
-//# sourceMappingURL=messages-recv.js.map

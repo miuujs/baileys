@@ -30,14 +30,10 @@ export class USyncQuery {
             return [protocol.name, protocol.parser];
         }));
         const queryResult = {
-            // TODO: implement errors etc.
             list: [],
             sideList: []
         };
         const usyncNode = getBinaryNodeChild(result, 'usync');
-        //TODO: implement error backoff, refresh etc.
-        //TODO: see if there are any errors in the result node
-        //const resultNode = getBinaryNodeChild(usyncNode, 'result')
         const listNode = usyncNode ? getBinaryNodeChild(usyncNode, 'list') : undefined;
         if (listNode?.content && Array.isArray(listNode.content)) {
             queryResult.list = listNode.content.reduce((acc, node) => {
@@ -62,8 +58,6 @@ export class USyncQuery {
                 return acc;
             }, []);
         }
-        //TODO: implement side list
-        //const sideListNode = getBinaryNodeChild(usyncNode, 'side_list')
         return queryResult;
     }
     withDeviceProtocol() {
@@ -95,4 +89,3 @@ export class USyncQuery {
         return this;
     }
 }
-//# sourceMappingURL=USyncQuery.js.map

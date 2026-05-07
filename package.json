@@ -1,7 +1,7 @@
 {
   "name": "baileys",
   "type": "module",
-  "version": "7.0.0-rc10",
+  "version": "1.0.0",
   "description": "A WebSockets library for interacting with WhatsApp Web",
   "author": "reiwabyte",
   "main": "src/index.js",

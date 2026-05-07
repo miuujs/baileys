@@ -8,4 +8,3 @@ export * from './WAM/index.js';
 export * from './WAUSync/index.js';
 export { makeWASocket };
 export default makeWASocket;
-//# sourceMappingURL=index.js.map

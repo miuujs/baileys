@@ -1,7 +1,6 @@
 import { Boom } from '@hapi/boom';
 import { proto } from '../../WAProto/index.js';
 import { areJidsSameUser, isHostedLidUser, isHostedPnUser, isJidBroadcast, isJidGroup, isJidMetaAI, isJidNewsletter, isJidStatusBroadcast, isLidUser, isPnUser
-//	transferDevice
  } from '../WABinary/index.js';
 import { unpadRandomMax16 } from './generics.js';
 export const getDecryptionJid = async (sender, repository) => {
@@ -12,7 +11,6 @@ export const getDecryptionJid = async (sender, repository) => {
     return mapped || sender;
 };
 const storeMappingFromEnvelope = async (stanza, sender, repository, decryptionJid, logger) => {
-    // TODO: Handle hosted IDs
     const { senderAlt } = extractAddressingContext(stanza);
     if (senderAlt && isLidUser(senderAlt) && isPnUser(sender) && decryptionJid === sender) {
         try {
@@ -28,75 +26,13 @@ const storeMappingFromEnvelope = async (stanza, sender, repository, decryptionJi
 export const NO_MESSAGE_FOUND_ERROR_TEXT = 'Message absent from node';
 export const MISSING_KEYS_ERROR_TEXT = 'Key used already or never filled';
 export const ACCOUNT_RESTRICTED_TEXT = 'Your account has been restricted';
-// Retry configuration for failed decryption
 export const DECRYPTION_RETRY_CONFIG = {
     maxRetries: 3,
     baseDelayMs: 100,
     sessionRecordErrors: ['No session record', 'SessionError: No session record']
 };
-/** NACK reason codes we send to the server (client → server) */
-export const NACK_REASONS = {
-    SenderReachoutTimelocked: 463,
-    ParsingError: 487,
-    UnrecognizedStanza: 488,
-    UnrecognizedStanzaClass: 489,
-    UnrecognizedStanzaType: 490,
-    InvalidProtobuf: 491,
-    InvalidHostedCompanionStanza: 493,
-    MissingMessageSecret: 495,
-    SignalErrorOldCounter: 496,
-    MessageDeletedOnPeer: 499,
-    UnhandledError: 500,
-    UnsupportedAdminRevoke: 550,
-    UnsupportedLIDGroup: 551,
-    DBOperationFailed: 552
-};
-/**
- * Server-side error codes returned in ack stanzas (server → client) that we
- * currently have dedicated handlers for. Extend as more handlers are added.
- * Distinct from the client-side NackReason enum (WAWebCreateNackFromStanza).
- */
 export const SERVER_ERROR_CODES = {
-    /**
-     * 1:1 message missing privacy token (tctoken). Usually means the account is
-     * restricted: WhatsApp blocks starting new chats but preserves existing ones,
-     * since established chats already carry a tctoken.
-     */
     MessageAccountRestriction: '463',
-    /** Stanza validation failure (SMAX_INVALID) — likely stale device session */
-    SmaxInvalid: '479'
-};
-export const extractAddressingContext = (stanza) => {
-    let senderAlt;
-    let recipientAlt;
-    const sender = stanza.attrs.participant || stanza.attrs.from;
-    const addressingMode = stanza.attrs.addressing_mode || (sender?.endsWith('lid') ? 'lid' : 'pn');
-    if (addressingMode === 'lid') {
-        // Message is LID-addressed: sender is LID, extract corresponding PN
-        // without device data
-        senderAlt = stanza.attrs.participant_pn || stanza.attrs.sender_pn || stanza.attrs.peer_recipient_pn;
-        recipientAlt = stanza.attrs.recipient_pn;
-        // with device data
-        //if (sender && senderAlt) senderAlt = transferDevice(sender, senderAlt)
-    }
-    else {
-        // Message is PN-addressed: sender is PN, extract corresponding LID
-        // without device data
-        senderAlt = stanza.attrs.participant_lid || stanza.attrs.sender_lid || stanza.attrs.peer_recipient_lid;
-        recipientAlt = stanza.attrs.recipient_lid;
-        //with device data
-        //if (sender && senderAlt) senderAlt = transferDevice(sender, senderAlt)
-    }
-    return {
-        addressingMode,
-        senderAlt,
-        recipientAlt
-    };
-};
-/**
- * Decode the received node as a message.
- * @note this will only parse the message, not decrypt it
- */
 export function decodeMessageNode(stanza, meId, meLid) {
     let msgType;
     let chatId;
@@ -215,7 +151,7 @@ export const decryptMessageNode = (stanza, meId, meLid, repository, logger) => {
                         fullMessage.verifiedBizName = details.verifiedName;
                     }
                     if (tag === 'unavailable' && attrs.type === 'view_once') {
-                        fullMessage.key.isViewOnce = true; // TODO: remove from here and add a STUB TYPE
+                        fullMessage.key.isViewOnce = true;
                     }
                     if (attrs.count && tag === 'enc') {
                         fullMessage.retryCount = Number(attrs.count);
@@ -230,7 +166,6 @@ export const decryptMessageNode = (stanza, meId, meLid, repository, logger) => {
                     let msgBuffer;
                     const decryptionJid = await getDecryptionJid(author, repository);
                     if (tag !== 'plaintext') {
-                        // TODO: Handle hosted devices
                         await storeMappingFromEnvelope(stanza, author, repository, decryptionJid, logger);
                     }
                     try {
@@ -260,7 +195,6 @@ export const decryptMessageNode = (stanza, meId, meLid, repository, logger) => {
                         let msg = proto.Message.decode(e2eType !== 'plaintext' ? unpadRandomMax16(msgBuffer) : msgBuffer);
                         msg = msg.deviceSentMessage?.message || msg;
                         if (msg.senderKeyDistributionMessage) {
-                            //eslint-disable-next-line max-depth
                             try {
                                 await repository.processSenderKeyDistributionMessage({
                                     authorJid: author,
@@ -293,7 +227,6 @@ export const decryptMessageNode = (stanza, meId, meLid, repository, logger) => {
                     }
                 }
             }
-            // if nothing was found to decrypt
             if (!decryptables && !fullMessage.key?.isViewOnce) {
                 fullMessage.messageStubType = proto.WebMessageInfo.StubType.CIPHERTEXT;
                 fullMessage.messageStubParameters = [NO_MESSAGE_FOUND_ERROR_TEXT];
@@ -301,11 +234,7 @@ export const decryptMessageNode = (stanza, meId, meLid, repository, logger) => {
         }
     };
 };
-/**
- * Utility function to check if an error is related to missing session record
- */
 function isSessionRecordError(error) {
     const errorMessage = error?.message || error?.toString() || '';
     return DECRYPTION_RETRY_CONFIG.sessionRecordErrors.some(errorPattern => errorMessage.includes(errorPattern));
 }
-//# sourceMappingURL=decode-wa-message.js.map

@@ -18,11 +18,3 @@ export const Browsers = {
     macOS: browser => ['Mac OS', browser, '14.4.1'],
     baileys: browser => ['Baileys', browser, '6.5.0'],
     windows: browser => ['Windows', browser, '10.0.22631'],
-    /** The appropriate browser based on your OS & release */
-    appropriate: browser => [PLATFORM_MAP[platform()] || 'Ubuntu', browser, release()]
-};
-export const getPlatformId = (browser) => {
-    const platformType = proto.DeviceProps.PlatformType[browser.toUpperCase()];
-    return platformType ? platformType.toString() : '1'; //chrome
-};
-//# sourceMappingURL=browser-utils.js.map

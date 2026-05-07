@@ -141,7 +141,6 @@ export const makeNoiseHandler = ({ keyPair: { private: privateKey, public: publi
             mixIntoKey(Curve.sharedKey(privateKey, decStaticContent));
             const certDecoded = decrypt(serverHello.payload);
             const { intermediate: certIntermediate, leaf } = proto.CertChain.decode(certDecoded);
-            // leaf
             if (!leaf?.details || !leaf?.signature) {
                 throw new Boom('invalid noise leaf certificate', { statusCode: 400 });
             }
@@ -198,4 +197,3 @@ export const makeNoiseHandler = ({ keyPair: { private: privateKey, public: publi
         }
     };
 };
-//# sourceMappingURL=noise-handler.js.map

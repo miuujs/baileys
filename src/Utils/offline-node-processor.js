@@ -1,9 +1,3 @@
-/**
- * Creates a processor for offline stanza nodes that:
- * - Queues nodes for sequential processing
- * - Yields to the event loop periodically to avoid blocking
- * - Catches handler errors to prevent the processing loop from crashing
- */
 export function makeOfflineNodeProcessor(nodeProcessorMap, deps, batchSize = 10) {
     const nodes = [];
     let isProcessing = false;
@@ -24,8 +18,6 @@ export function makeOfflineNodeProcessor(nodeProcessorMap, deps, batchSize = 10)
                 }
                 await nodeProcessor(node).catch(err => deps.onUnexpectedError(err, `processing offline ${type}`));
                 processedInBatch++;
-                // Yield to event loop after processing a batch
-                // This prevents blocking the event loop for too long when there are many offline nodes
                 if (processedInBatch >= batchSize) {
                     processedInBatch = 0;
                     await deps.yieldToEventLoop();
@@ -37,4 +29,3 @@ export function makeOfflineNodeProcessor(nodeProcessorMap, deps, batchSize = 10)
     };
     return { enqueue };
 }
-//# sourceMappingURL=offline-node-processor.js.map

@@ -18,21 +18,16 @@ const BUFFERABLE_EVENT = [
     'groups.update'
 ];
 const BUFFERABLE_EVENT_SET = new Set(BUFFERABLE_EVENT);
-/**
- * The event buffer logically consolidates different events into a single event
- * making the data processing more efficient.
- */
 export const makeEventBuffer = (logger) => {
     const ev = new EventEmitter();
     const historyCache = new Set();
     let data = makeBufferData();
     let isBuffering = false;
     let bufferTimeout = null;
-    let flushPendingTimeout = null; // Add a specific timer for the debounced flush to prevent leak
+    let flushPendingTimeout = null;
     let bufferCount = 0;
-    const MAX_HISTORY_CACHE_SIZE = 10000; // Limit the history cache size to prevent memory bloat
-    const BUFFER_TIMEOUT_MS = 30000; // 30 seconds
-    // take the generic event and fire it as a baileys event
+    const MAX_HISTORY_CACHE_SIZE = 10000;
+    const BUFFER_TIMEOUT_MS = 30000;
     ev.on('event', (map) => {
         for (const event in map) {
             ev.emit(event, map[event]);
@@ -53,7 +48,6 @@ export const makeEventBuffer = (logger) => {
                 }
             }, BUFFER_TIMEOUT_MS);
         }
-        // Always increment count when requested
         bufferCount++;
     }
     function flush() {
@@ -63,7 +57,6 @@ export const makeEventBuffer = (logger) => {
         logger.debug({ bufferCount }, 'Flushing event buffer');
         isBuffering = false;
         bufferCount = 0;
-        // Clear timeout
         if (bufferTimeout) {
             clearTimeout(bufferTimeout);
             bufferTimeout = null;
@@ -72,7 +65,6 @@ export const makeEventBuffer = (logger) => {
             clearTimeout(flushPendingTimeout);
             flushPendingTimeout = null;
         }
-        // Clear history cache if it exceeds the max size
         if (historyCache.size > MAX_HISTORY_CACHE_SIZE) {
             logger.debug({ cacheSize: historyCache.size }, 'Clearing history cache');
             historyCache.clear();
@@ -106,8 +98,6 @@ export const makeEventBuffer = (logger) => {
             };
         },
         emit(event, evData) {
-            // Check if this is a messages.upsert with a different type than what's buffered
-            // If so, flush the buffered messages first to avoid type overshadowing
             if (event === 'messages.upsert') {
                 const { type } = evData;
                 const existingUpserts = Object.values(data.messageUpserts);
@@ -115,14 +105,12 @@ export const makeEventBuffer = (logger) => {
                     const bufferedType = existingUpserts[0].type;
                     if (bufferedType !== type) {
                         logger.debug({ bufferedType, newType: type }, 'messages.upsert type mismatch, emitting buffered messages');
-                        // Emit the buffered messages with their correct type
                         ev.emit('event', {
                             'messages.upsert': {
                                 messages: existingUpserts.map(m => m.message),
                                 type: bufferedType
                             }
                         });
-                        // Clear the message upserts from the buffer
                         data.messageUpserts = {};
                     }
                 }
@@ -143,13 +131,12 @@ export const makeEventBuffer = (logger) => {
                 buffer();
                 try {
                     const result = await work(...args);
-                    // If this is the only buffer, flush after a small delay
                     if (bufferCount === 1) {
                         setTimeout(() => {
                             if (isBuffering && bufferCount === 1) {
                                 flush();
                             }
-                        }, 100); // Small delay to allow nested buffers
+                        }, 100);
                     }
                     return result;
                 }
@@ -159,7 +146,6 @@ export const makeEventBuffer = (logger) => {
                 finally {
                     bufferCount = Math.max(0, bufferCount - 1);
                     if (bufferCount === 0) {
-                        // Only schedule ONE timeout, not 10,000
                         if (!flushPendingTimeout) {
                             flushPendingTimeout = setTimeout(flush, 100);
                         }
@@ -171,7 +157,6 @@ export const makeEventBuffer = (logger) => {
         off: (...args) => ev.off(...args),
         removeAllListeners: (...args) => ev.removeAllListeners(...args),
         destroy() {
-            // Clear buffer timeout
             if (bufferTimeout) {
                 clearTimeout(bufferTimeout);
                 bufferTimeout = null;
@@ -180,13 +165,10 @@ export const makeEventBuffer = (logger) => {
                 clearTimeout(flushPendingTimeout);
                 flushPendingTimeout = null;
             }
-            // Clear history cache
             historyCache.clear();
-            // Reset buffer data
             data = makeBufferData();
             isBuffering = false;
             bufferCount = 0;
-            // Remove all listeners
             ev.removeAllListeners();
             logger.debug('Event buffer destroyed');
         }
@@ -215,7 +197,6 @@ const makeBufferData = () => {
     };
 };
 function append(data, historyCache, event, 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 eventData, logger) {
     switch (event) {
         case 'messaging-history.set':
@@ -314,24 +295,18 @@ eventData, logger) {
                 const conditionMatches = update.conditional ? update.conditional(data) : true;
                 if (conditionMatches) {
                     delete update.conditional;
-                    // if there is an existing upsert, merge the update into it
                     const upsert = data.historySets.chats[chatId] || data.chatUpserts[chatId];
                     if (upsert) {
                         concatChats(upsert, update);
                     }
                     else {
-                        // merge the update into the existing update
                         const chatUpdate = data.chatUpdates[chatId] || {};
                         data.chatUpdates[chatId] = concatChats(chatUpdate, update);
                     }
                 }
                 else if (conditionMatches === undefined) {
-                    // condition yet to be fulfilled
                     data.chatUpdates[chatId] = update;
                 }
-                // otherwise -- condition not met, update is invalid
-                // if the chat has been updated
-                // ignore any existing chat delete
                 if (data.chatDeletes.has(chatId)) {
                     data.chatDeletes.delete(chatId);
                 }
@@ -342,7 +317,6 @@ eventData, logger) {
                 if (!data.chatDeletes.has(chatId)) {
                     data.chatDeletes.add(chatId);
                 }
-                // remove any prior updates & upserts
                 if (data.chatUpdates[chatId]) {
                     delete data.chatUpdates[chatId];
                 }
@@ -380,13 +354,11 @@ eventData, logger) {
             const contactUpdates = eventData;
             for (const update of contactUpdates) {
                 const id = update.id;
-                // merge into prior upsert
                 const upsert = data.historySets.contacts[id] || data.contactUpserts[id];
                 if (upsert) {
                     Object.assign(upsert, update);
                 }
                 else {
-                    // merge into prior update
                     const contactUpdate = data.contactUpdates[id] || {};
                     data.contactUpdates[id] = Object.assign(contactUpdate, update);
                 }
@@ -429,9 +401,6 @@ eventData, logger) {
                 const existing = data.historySets.messages[keyStr] || data.messageUpserts[keyStr]?.message;
                 if (existing) {
                     Object.assign(existing, update);
-                    // if the message was received & read by us
-                    // the chat counter must have been incremented
-                    // so we need to decrement it
                     if (update.status === WAMessageStatus.READ && !key.fromMe) {
                         decrementChatReadCounterIfMsgDidUnread(existing);
                     }
@@ -461,7 +430,6 @@ eventData, logger) {
                 }
             }
             else {
-                // TODO: add support
             }
             break;
         case 'messages.reaction':
@@ -523,8 +491,6 @@ eventData, logger) {
         }
     }
     function decrementChatReadCounterIfMsgDidUnread(message) {
-        // decrement chat unread counter
-        // if the message has already been marked read by us
         const chatId = message.key.remoteJid;
         const chat = data.chatUpdates[chatId] || data.chatUpserts[chatId];
         if (isRealMessage(message) &&
@@ -605,7 +571,7 @@ function consolidateEvents(data) {
     return map;
 }
 function concatChats(a, b) {
-    if (b.unreadCount === null && // neutralize unread counter
+        if (b.unreadCount === null &&
         a.unreadCount < 0) {
         a.unreadCount = undefined;
         b.unreadCount = undefined;
@@ -619,4 +585,3 @@ function concatChats(a, b) {
     return Object.assign(a, b);
 }
 const stringifyMessageKey = (key) => `${key.remoteJid},${key.id},${key.fromMe ? '1' : '0'}`;
-//# sourceMappingURL=event-buffer.js.map

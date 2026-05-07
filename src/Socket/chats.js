@@ -17,61 +17,24 @@ export const makeChatsSocket = (config) => {
     const { ev, ws, authState, generateMessageTag, sendNode, query, signalRepository, onUnexpectedError, sendUnifiedSession, registerSocketEndHandler } = sock;
     const getLIDForPN = signalRepository.lidMapping.getLIDForPN.bind(signalRepository.lidMapping);
     let privacySettings;
-    /** Server-assigned AB props for protocol behavior. */
-    const serverProps = {
-        /** AB prop 10518: gate tctoken on 1:1 messages. Default true (safe: avoids 463). */
         privacyTokenOn1to1: true,
-        /** AB prop 9666: gate tctoken on profile picture IQs. WA Web default: true. */
-        profilePicPrivacyToken: true,
-        /** AB prop 14303: issue tctokens to LID instead of PN. WA Web default: false. */
         lidTrustedTokenIssueToLid: false
     };
     let syncState = SyncState.Connecting;
-    /** this mutex ensures that messages are processed in order */
-    const messageMutex = makeMutex();
-    /** this mutex ensures that receipts are processed in order */
     const receiptMutex = makeMutex();
-    /** this mutex ensures that app state patches are processed in order */
-    const appStatePatchMutex = makeMutex();
-    /** this mutex ensures that notifications are processed in order */
     const notificationMutex = makeMutex();
-    // Timeout for AwaitingInitialSync state
     let awaitingSyncTimeout;
-    // In-memory history sync completion tracking (resets on reconnection)
     const historySyncStatus = {
         initialBootstrapComplete: false,
         recentSyncComplete: false
     };
     let historySyncPausedTimeout;
-    // Collections blocked on missing app state sync keys (mirrors WA Web's "Blocked" state).
-    // When a key arrives via APP_STATE_SYNC_KEY_SHARE, these are re-synced.
     const blockedCollections = new Set();
     const placeholderResendCache = config.placeholderResendCache ||
         new NodeCache({
-            stdTTL: DEFAULT_CACHE_TTLS.MSG_RETRY, // 1 hour
+            stdTTL: DEFAULT_CACHE_TTLS.MSG_RETRY,
             useClones: false
         });
-    /** helper function to fetch the given app state sync key */
-    const getAppStateSyncKey = async (keyId) => {
-        const { [keyId]: key } = await authState.keys.get('app-state-sync-key', [keyId]);
-        return key;
-    };
-    const fetchPrivacySettings = async (force = false) => {
-        if (!privacySettings || force) {
-            const { content } = await query({
-                tag: 'iq',
-                attrs: {
-                    xmlns: 'privacy',
-                    to: S_WHATSAPP_NET,
-                    type: 'get'
-                },
-                content: [{ tag: 'privacy', attrs: {} }]
-            });
-            privacySettings = reduceBinaryNodeToDictionary(content?.[0], 'category');
-        }
-        return privacySettings;
-    };
-    /** helper function to run a privacy IQ query */
     const privacyQuery = async (name, value) => {
         await query({
             tag: 'iq',
@@ -187,44 +150,13 @@ export const makeChatsSocket = (config) => {
             return result.list;
         }
     };
-    /** update the profile picture for yourself or a group */
-    const updateProfilePicture = async (jid, content, dimensions) => {
-        let targetJid;
-        if (!jid) {
-            throw new Boom('Illegal no-jid profile update. Please specify either your ID or the ID of the chat you wish to update');
-        }
-        if (jidNormalizedUser(jid) !== jidNormalizedUser(authState.creds.me.id)) {
-            targetJid = jidNormalizedUser(jid); // in case it is someone other than us
-        }
-        else {
-            targetJid = undefined;
-        }
-        const { img } = await generateProfilePicture(content, dimensions);
-        await query({
-            tag: 'iq',
-            attrs: {
-                to: S_WHATSAPP_NET,
-                type: 'set',
-                xmlns: 'w:profile:picture',
-                ...(targetJid ? { target: targetJid } : {})
-            },
-            content: [
-                {
-                    tag: 'picture',
-                    attrs: { type: 'image' },
-                    content: img
-                }
-            ]
-        });
-    };
-    /** remove the profile picture for yourself or a group */
     const removeProfilePicture = async (jid) => {
         let targetJid;
         if (!jid) {
             throw new Boom('Illegal no-jid profile update. Please specify either your ID or the ID of the chat you wish to update');
         }
         if (jidNormalizedUser(jid) !== jidNormalizedUser(authState.creds.me.id)) {
-            targetJid = jidNormalizedUser(jid); // in case it is someone other than us
+            targetJid = jidNormalizedUser(jid);
         }
         else {
             targetJid = undefined;
@@ -239,317 +171,8 @@ export const makeChatsSocket = (config) => {
             }
         });
     };
-    /** update the profile status for yourself */
-    const updateProfileStatus = async (status) => {
-        await query({
-            tag: 'iq',
-            attrs: {
-                to: S_WHATSAPP_NET,
-                type: 'set',
-                xmlns: 'status'
-            },
-            content: [
-                {
-                    tag: 'status',
-                    attrs: {},
-                    content: Buffer.from(status, 'utf-8')
-                }
-            ]
-        });
-    };
-    const updateProfileName = async (name) => {
-        await chatModify({ pushNameSetting: name }, '');
-    };
-    const fetchBlocklist = async () => {
-        const result = await query({
-            tag: 'iq',
-            attrs: {
-                xmlns: 'blocklist',
-                to: S_WHATSAPP_NET,
-                type: 'get'
-            }
-        });
-        const listNode = getBinaryNodeChild(result, 'list');
-        return getBinaryNodeChildren(listNode, 'item').map(n => n.attrs.jid);
-    };
-    const updateBlockStatus = async (jid, action) => {
-        const normalizedJid = jidNormalizedUser(jid);
-        let lid;
-        let pn_jid;
-        if (isLidUser(normalizedJid) || isHostedLidUser(normalizedJid)) {
-            lid = normalizedJid;
-            if (action === 'block') {
-                const pn = await signalRepository.lidMapping.getPNForLID(normalizedJid);
-                if (!pn) {
-                    throw new Boom(`Unable to resolve PN JID for LID: ${jid}`, { statusCode: 400 });
-                }
-                pn_jid = jidNormalizedUser(pn);
-            }
-        }
-        else if (isPnUser(normalizedJid) || isHostedPnUser(normalizedJid)) {
-            const mapped = await signalRepository.lidMapping.getLIDForPN(normalizedJid);
-            if (!mapped) {
-                throw new Boom(`Unable to resolve LID for PN JID: ${jid}`, { statusCode: 400 });
-            }
-            lid = mapped;
-            if (action === 'block') {
-                pn_jid = jidNormalizedUser(normalizedJid);
-            }
-        }
-        else {
-            throw new Boom(`Invalid jid: ${jid}`, { statusCode: 400 });
-        }
-        const itemAttrs = {
-            action,
-            jid: lid
-        };
-        if (action === 'block') {
-            if (!pn_jid) {
-                throw new Boom(`pn_jid required for block: ${jid}`, { statusCode: 400 });
-            }
-            itemAttrs.pn_jid = pn_jid;
-        }
-        await query({
-            tag: 'iq',
-            attrs: {
-                xmlns: 'blocklist',
-                to: S_WHATSAPP_NET,
-                type: 'set'
-            },
-            content: [
-                {
-                    tag: 'item',
-                    attrs: itemAttrs
-                }
-            ]
-        });
-    };
-    const getBusinessProfile = async (jid) => {
-        const results = await query({
-            tag: 'iq',
-            attrs: {
-                to: 's.whatsapp.net',
-                xmlns: 'w:biz',
-                type: 'get'
-            },
-            content: [
-                {
-                    tag: 'business_profile',
-                    attrs: { v: '244' },
-                    content: [
-                        {
-                            tag: 'profile',
-                            attrs: { jid }
-                        }
-                    ]
-                }
-            ]
-        });
-        const profileNode = getBinaryNodeChild(results, 'business_profile');
-        const profiles = getBinaryNodeChild(profileNode, 'profile');
-        if (profiles) {
-            const address = getBinaryNodeChild(profiles, 'address');
-            const description = getBinaryNodeChild(profiles, 'description');
-            const website = getBinaryNodeChild(profiles, 'website');
-            const email = getBinaryNodeChild(profiles, 'email');
-            const category = getBinaryNodeChild(getBinaryNodeChild(profiles, 'categories'), 'category');
-            const businessHours = getBinaryNodeChild(profiles, 'business_hours');
-            const businessHoursConfig = businessHours
-                ? getBinaryNodeChildren(businessHours, 'business_hours_config')
-                : undefined;
-            const websiteStr = website?.content?.toString();
-            return {
-                wid: profiles.attrs?.jid,
-                address: address?.content?.toString(),
-                description: description?.content?.toString() || '',
-                website: websiteStr ? [websiteStr] : [],
-                email: email?.content?.toString(),
-                category: category?.content?.toString(),
-                business_hours: {
-                    timezone: businessHours?.attrs?.timezone,
-                    business_config: businessHoursConfig?.map(({ attrs }) => attrs)
-                }
-            };
-        }
-    };
-    const cleanDirtyBits = async (type, fromTimestamp) => {
-        logger.info({ fromTimestamp }, 'clean dirty bits ' + type);
-        await sendNode({
-            tag: 'iq',
-            attrs: {
-                to: S_WHATSAPP_NET,
-                type: 'set',
-                xmlns: 'urn:xmpp:whatsapp:dirty',
-                id: generateMessageTag()
-            },
-            content: [
-                {
-                    tag: 'clean',
-                    attrs: {
-                        type,
-                        ...(fromTimestamp ? { timestamp: fromTimestamp.toString() } : null)
-                    }
-                }
-            ]
-        });
-    };
-    const newAppStateChunkHandler = (isInitialSync) => {
-        return {
-            onMutation(mutation) {
-                processSyncAction(mutation, ev, authState.creds.me, isInitialSync ? { accountSettings: authState.creds.accountSettings } : undefined, logger);
-            }
-        };
-    };
-    const resyncAppState = ev.createBufferedFunction(async (collections, isInitialSync) => {
-        const appStateSyncKeyCache = new Map();
-        const getCachedAppStateSyncKey = async (keyId) => {
-            if (appStateSyncKeyCache.has(keyId)) {
-                return appStateSyncKeyCache.get(keyId) ?? undefined;
-            }
-            const key = await getAppStateSyncKey(keyId);
-            appStateSyncKeyCache.set(keyId, key ?? null);
-            return key;
-        };
-        // we use this to determine which events to fire
-        // otherwise when we resync from scratch -- all notifications will fire
-        const initialVersionMap = {};
-        const globalMutationMap = {};
-        await authState.keys.transaction(async () => {
-            const collectionsToHandle = new Set(collections);
-            // in case something goes wrong -- ensure we don't enter a loop that cannot be exited from
-            const attemptsMap = {};
-            // collections that failed and need a full snapshot on retry
-            // mirrors WA Web's ErrorFatal -> force snapshot behavior
-            const forceSnapshotCollections = new Set();
-            // keep executing till all collections are done
-            // sometimes a single patch request will not return all the patches (God knows why)
-            // so we fetch till they're all done (this is determined by the "has_more_patches" flag)
-            while (collectionsToHandle.size) {
-                const states = {};
-                const nodes = [];
-                for (const name of collectionsToHandle) {
-                    const result = await authState.keys.get('app-state-sync-version', [name]);
-                    let state = result[name];
-                    if (state) {
-                        state = ensureLTHashStateVersion(state);
-                        if (typeof initialVersionMap[name] === 'undefined') {
-                            initialVersionMap[name] = state.version;
-                        }
-                    }
-                    else {
-                        state = newLTHashState();
-                    }
-                    states[name] = state;
-                    const shouldForceSnapshot = forceSnapshotCollections.has(name);
-                    if (shouldForceSnapshot) {
-                        forceSnapshotCollections.delete(name);
-                    }
-                    logger.info(`resyncing ${name} from v${state.version}${shouldForceSnapshot ? ' (forcing snapshot)' : ''}`);
-                    nodes.push({
-                        tag: 'collection',
-                        attrs: {
-                            name,
-                            version: state.version.toString(),
-                            // return snapshot if syncing from scratch or forcing after a failed attempt
-                            return_snapshot: (shouldForceSnapshot || !state.version).toString()
-                        }
-                    });
-                }
-                const result = await query({
-                    tag: 'iq',
-                    attrs: {
-                        to: S_WHATSAPP_NET,
-                        xmlns: 'w:sync:app:state',
-                        type: 'set'
-                    },
-                    content: [
-                        {
-                            tag: 'sync',
-                            attrs: {},
-                            content: nodes
-                        }
-                    ]
-                });
-                // extract from binary node
-                const decoded = await extractSyncdPatches(result, config?.options);
-                for (const key in decoded) {
-                    const name = key;
-                    const { patches, hasMorePatches, snapshot } = decoded[name];
-                    try {
-                        if (snapshot) {
-                            const { state: newState, mutationMap } = await decodeSyncdSnapshot(name, snapshot, getCachedAppStateSyncKey, initialVersionMap[name], appStateMacVerification.snapshot, logger);
-                            states[name] = newState;
-                            Object.assign(globalMutationMap, mutationMap);
-                            logger.info(`restored state of ${name} from snapshot to v${newState.version} with mutations`);
-                            await authState.keys.set({ 'app-state-sync-version': { [name]: newState } });
-                        }
-                        // only process if there are syncd patches
-                        if (patches.length) {
-                            const { state: newState, mutationMap } = await decodePatches(name, patches, states[name], getCachedAppStateSyncKey, config.options, initialVersionMap[name], logger, appStateMacVerification.patch);
-                            await authState.keys.set({ 'app-state-sync-version': { [name]: newState } });
-                            logger.info(`synced ${name} to v${newState.version}`);
-                            initialVersionMap[name] = newState.version;
-                            Object.assign(globalMutationMap, mutationMap);
-                        }
-                        if (hasMorePatches) {
-                            logger.info(`${name} has more patches...`);
-                        }
-                        else {
-                            // collection is done with sync
-                            collectionsToHandle.delete(name);
-                        }
-                    }
-                    catch (error) {
-                        attemptsMap[name] = (attemptsMap[name] || 0) + 1;
-                        const logData = {
-                            name,
-                            attempt: attemptsMap[name],
-                            version: states[name].version,
-                            statusCode: error.output?.statusCode,
-                            errorType: error.name,
-                            error: error.stack
-                        };
-                        if (isMissingKeyError(error) && attemptsMap[name] >= MAX_SYNC_ATTEMPTS) {
-                            // WA Web treats missing keys as "Blocked" — park the collection
-                            // until the key arrives via APP_STATE_SYNC_KEY_SHARE.
-                            logger.warn(logData, `${name} blocked on missing key from v${states[name].version}, parking after ${attemptsMap[name]} attempts`);
-                            blockedCollections.add(name);
-                            collectionsToHandle.delete(name);
-                        }
-                        else if (isMissingKeyError(error)) {
-                            // Retry with a snapshot which may use a different key.
-                            logger.info(logData, `${name} blocked on missing key from v${states[name].version}, retrying with snapshot`);
-                            forceSnapshotCollections.add(name);
-                        }
-                        else if (isAppStateSyncIrrecoverable(error, attemptsMap[name])) {
-                            logger.warn(logData, `failed to sync ${name} from v${states[name].version}, giving up`);
-                            collectionsToHandle.delete(name);
-                        }
-                        else {
-                            logger.info(logData, `failed to sync ${name} from v${states[name].version}, forcing snapshot retry`);
-                            // force a full snapshot on retry to recover from
-                            // corrupted local state (e.g. LTHash MAC mismatch)
-                            forceSnapshotCollections.add(name);
-                        }
-                    }
-                }
-            }
-        }, authState?.creds?.me?.id || 'resync-app-state');
-        const { onMutation } = newAppStateChunkHandler(isInitialSync);
-        for (const key in globalMutationMap) {
-            onMutation(globalMutationMap[key]);
-        }
-    });
-    /**
-     * fetch the profile picture of a user/group
-     * type = "preview" for a low res picture
-     * type = "image for the high res picture"
-     */
     const profilePictureUrl = async (jid, type = 'preview', timeoutMs) => {
         const baseContent = [{ tag: 'picture', attrs: { type, query: 'url' } }];
-        // WA Web only includes tctoken for user JIDs (not groups/newsletters)
-        // and never for own profile pic (Chat model for self has no tcToken).
-        // Including tctoken for own JID causes the server to never respond.
         const normalizedJid = jidNormalizedUser(jid);
         const isUserJid = isPnUser(normalizedJid) || isLidUser(normalizedJid);
         const me = authState.creds.me;
@@ -633,12 +256,7 @@ export const makeChatsSocket = (config) => {
             });
         }
     };
-    /**
-     * @param toJid the jid to subscribe to
-     * @param tcToken token for subscription, use if present
-     */
     const presenceSubscribe = async (toJid) => {
-        // Only include tctoken for user JIDs — groups/newsletters don't use tctokens
         const normalizedToJid = jidNormalizedUser(toJid);
         const isUserJid = isPnUser(normalizedToJid) || isLidUser(normalizedToJid);
         const tcTokenContent = isUserJid
@@ -744,71 +362,15 @@ export const makeChatsSocket = (config) => {
             }
         }
     };
-    /** fetch AB props */
-    const fetchProps = async () => {
-        const resultNode = await query({
-            tag: 'iq',
-            attrs: {
-                to: S_WHATSAPP_NET,
-                xmlns: 'abt',
-                type: 'get'
-            },
-            content: [
-                {
-                    tag: 'props',
-                    attrs: {
-                        protocol: '1',
-                        ...(authState?.creds?.lastPropHash ? { hash: authState.creds.lastPropHash } : {})
-                    }
-                }
-            ]
-        });
-        const propsNode = getBinaryNodeChild(resultNode, 'props');
-        let props = {};
-        if (propsNode) {
-            if (propsNode.attrs?.hash) {
-                // on some clients, the hash is returning as undefined
-                authState.creds.lastPropHash = propsNode?.attrs?.hash;
-                ev.emit('creds.update', authState.creds);
-            }
-            props = reduceBinaryNodeToDictionary(propsNode, 'prop');
-        }
-        // Extract protocol-relevant AB props (only the ones we need)
-        const privacyTokenProp = props['10518'] ?? props['privacy_token_sending_on_all_1_on_1_messages'];
-        if (privacyTokenProp !== undefined) {
-            serverProps.privacyTokenOn1to1 = privacyTokenProp === 'true' || privacyTokenProp === '1';
-        }
-        const profilePicProp = props['9666'] ?? props['profile_scraping_privacy_token_in_photo_iq'];
-        if (profilePicProp !== undefined) {
-            serverProps.profilePicPrivacyToken = profilePicProp === 'true' || profilePicProp === '1';
-        }
-        const lidIssueProp = props['14303'] ?? props['lid_trusted_token_issue_to_lid'];
-        if (lidIssueProp !== undefined) {
-            serverProps.lidTrustedTokenIssueToLid = lidIssueProp === 'true' || lidIssueProp === '1';
-        }
-        logger.debug({ serverProps }, 'fetched props');
-        return props;
-    };
-    /**
-     * modify a chat -- mark unread, read etc.
-     * lastMessages must be sorted in reverse chronologically
-     * requires the last messages till the last message received; required for archive & unread
-     */
     const chatModify = (mod, jid) => {
         const patch = chatModificationToAppPatch(mod, jid);
         return appPatch(patch);
     };
-    /**
-     * Enable/Disable link preview privacy, not related to baileys link preview generation
-     */
     const updateDisableLinkPreviewsPrivacy = (isPreviewsDisabled) => {
         return chatModify({
             disableLinkPreviews: { isPreviewsDisabled }
         }, '');
     };
-    /**
-     * Star or Unstar a message
-     */
     const star = (jid, messages, star) => {
         return chatModify({
             star: {
@@ -817,25 +379,16 @@ export const makeChatsSocket = (config) => {
             }
         }, jid);
     };
-    /**
-     * Add or Edit Contact
-     */
     const addOrEditContact = (jid, contact) => {
         return chatModify({
             contact
         }, jid);
     };
-    /**
-     * Remove Contact
-     */
     const removeContact = (jid) => {
         return chatModify({
             contact: null
         }, jid);
     };
-    /**
-     * Adds label
-     */
     const addLabel = (jid, labels) => {
         return chatModify({
             addLabel: {
@@ -843,9 +396,6 @@ export const makeChatsSocket = (config) => {
             }
         }, jid);
     };
-    /**
-     * Adds label for the chats
-     */
     const addChatLabel = (jid, labelId) => {
         return chatModify({
             addChatLabel: {
@@ -853,9 +403,6 @@ export const makeChatsSocket = (config) => {
             }
         }, jid);
     };
-    /**
-     * Removes label for the chat
-     */
     const removeChatLabel = (jid, labelId) => {
         return chatModify({
             removeChatLabel: {
@@ -863,9 +410,6 @@ export const makeChatsSocket = (config) => {
             }
         }, jid);
     };
-    /**
-     * Adds label for the message
-     */
     const addMessageLabel = (jid, messageId, labelId) => {
         return chatModify({
             addMessageLabel: {
@@ -874,9 +418,6 @@ export const makeChatsSocket = (config) => {
             }
         }, jid);
     };
-    /**
-     * Removes label for the message
-     */
     const removeMessageLabel = (jid, messageId, labelId) => {
         return chatModify({
             removeMessageLabel: {
@@ -885,26 +426,16 @@ export const makeChatsSocket = (config) => {
             }
         }, jid);
     };
-    /**
-     * Add or Edit Quick Reply
-     */
     const addOrEditQuickReply = (quickReply) => {
         return chatModify({
             quickReply
         }, '');
     };
-    /**
-     * Remove Quick Reply
-     */
     const removeQuickReply = (timestamp) => {
         return chatModify({
             quickReply: { timestamp, deleted: true }
         }, '');
     };
-    /**
-     * queries need to be fired on connection open
-     * help ensure parity with WA Web
-     * */
     const executeInitQueries = async () => {
         await Promise.all([fetchProps(), fetchBlocklist(), fetchPrivacySettings()]);
     };
@@ -916,7 +447,6 @@ export const makeChatsSocket = (config) => {
             if (!msg.key.fromMe) {
                 ev.emit('contacts.update', [{ id: jid, notify: msg.pushName, verifiedName: msg.verifiedBizName }]);
             }
-            // update our pushname too
             if (msg.key.fromMe && msg.pushName && authState.creds.me?.name !== msg.pushName) {
                 ev.emit('creds.update', { me: { ...authState.creds.me, name: msg.pushName } });
             }
@@ -928,7 +458,6 @@ export const makeChatsSocket = (config) => {
             : false;
         if (historyMsg && shouldProcessHistoryMsg) {
             const syncType = historyMsg.syncType;
-            // INITIAL_BOOTSTRAP — fire immediately, no progress check (same as WA Web K function)
             if (syncType === proto.HistorySync.HistorySyncType.INITIAL_BOOTSTRAP &&
                 !historySyncStatus.initialBootstrapComplete) {
                 historySyncStatus.initialBootstrapComplete = true;
@@ -938,7 +467,6 @@ export const makeChatsSocket = (config) => {
                     explicit: true
                 });
             }
-            // RECENT with progress === 100 — explicit completion
             if (syncType === proto.HistorySync.HistorySyncType.RECENT &&
                 historyMsg.progress === 100 &&
                 !historySyncStatus.recentSyncComplete) {
@@ -951,7 +479,6 @@ export const makeChatsSocket = (config) => {
                     explicit: true
                 });
             }
-            // Reset 120s paused timeout on any RECENT chunk (like WA Web's handleChunkProgress)
             if (syncType === proto.HistorySync.HistorySyncType.RECENT && !historySyncStatus.recentSyncComplete) {
                 clearTimeout(historySyncPausedTimeout);
                 historySyncPausedTimeout = setTimeout(() => {
@@ -967,7 +494,6 @@ export const makeChatsSocket = (config) => {
                 }, HISTORY_SYNC_PAUSED_TIMEOUT_MS);
             }
         }
-        // State machine: decide on sync and flush
         if (historyMsg && syncState === SyncState.AwaitingInitialSync) {
             if (awaitingSyncTimeout) {
                 clearTimeout(awaitingSyncTimeout);
@@ -976,7 +502,6 @@ export const makeChatsSocket = (config) => {
             if (shouldProcessHistoryMsg) {
                 syncState = SyncState.Syncing;
                 logger.info('Transitioned to Syncing state');
-                // Let doAppStateSync handle the final flush after it's done
             }
             else {
                 syncState = SyncState.Online;
@@ -986,11 +511,9 @@ export const makeChatsSocket = (config) => {
         }
         const doAppStateSync = async () => {
             if (syncState === SyncState.Syncing) {
-                // All collections will be synced, so clear any blocked ones
                 blockedCollections.clear();
                 logger.info('Doing app state sync');
                 await resyncAppState(ALL_WA_PATCH_NAMES, true);
-                // Sync is complete, go online and flush everything
                 syncState = SyncState.Online;
                 logger.info('App state sync complete, transitioning to Online state and flushing buffer');
                 ev.flush();
@@ -1016,7 +539,6 @@ export const makeChatsSocket = (config) => {
                 getMessage
             })
         ]);
-        // If the app state key arrives and we are waiting to sync, trigger the sync now.
         if (msg.message?.protocolMessage?.appStateSyncKeyShare && syncState === SyncState.Syncing) {
             logger.info('App state sync key arrived, triggering app state sync');
             await doAppStateSync();
@@ -1039,7 +561,6 @@ export const makeChatsSocket = (config) => {
                 }
                 break;
             case 'groups':
-                // handled in groups.ts
                 break;
             default:
                 logger.info({ node }, 'received unknown sync');
@@ -1077,9 +598,6 @@ export const makeChatsSocket = (config) => {
             setTimeout(() => ev.flush(), 0);
             return;
         }
-        // On reconnection (accountSyncCounter > 0), the server does not push
-        // history sync notifications — the device already has its data.
-        // Skip the 20s wait and go online immediately.
         if (authState.creds.accountSyncCounter > 0) {
             logger.info('Reconnection with existing sync data, skipping history sync wait. Transitioning to Online.');
             syncState = SyncState.Online;
@@ -1095,22 +613,15 @@ export const makeChatsSocket = (config) => {
                 logger.warn('Timeout in AwaitingInitialSync, forcing state to Online and flushing buffer');
                 syncState = SyncState.Online;
                 ev.flush();
-                // Increment so subsequent reconnections skip the 20s wait.
-                // Late-arriving history is still processed via processMessage
-                // regardless of the state machine phase.
                 const accountSyncCounter = (authState.creds.accountSyncCounter || 0) + 1;
                 ev.emit('creds.update', { accountSyncCounter });
             }
         }, 20000);
     });
-    // When an app state sync key arrives (myAppStateKeyId is set) and there are
-    // collections blocked on a missing key, trigger a re-sync for just those collections.
-    // This mirrors WA Web's Blocked → retry-on-key-arrival behavior.
     ev.on('creds.update', ({ myAppStateKeyId }) => {
         if (!myAppStateKeyId || blockedCollections.size === 0) {
             return;
         }
-        // If we're in the middle of a full sync, doAppStateSync handles all collections
         if (syncState === SyncState.Syncing) {
             blockedCollections.clear();
             return;
@@ -1189,4 +700,3 @@ export const makeChatsSocket = (config) => {
         removeQuickReply
     };
 };
-//# sourceMappingURL=chats.js.map

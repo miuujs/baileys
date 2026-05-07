@@ -4,12 +4,7 @@ import { join } from 'path';
 import { proto } from '../../WAProto/index.js';
 import { initAuthCreds } from './auth-utils.js';
 import { BufferJSON } from './generics.js';
-// We need to lock files due to the fact that we are using async functions to read and write files
-// https://github.com/WhiskeySockets/Baileys/issues/794
-// https://github.com/nodejs/node/issues/26338
-// Use a Map to store mutexes for each file path
 const fileLocks = new Map();
-// Get or create a mutex for a specific file path
 const getFileLock = (path) => {
     let mutex = fileLocks.get(path);
     if (!mutex) {
@@ -18,15 +13,7 @@ const getFileLock = (path) => {
     }
     return mutex;
 };
-/**
- * stores the full authentication state in a single folder.
- * Far more efficient than singlefileauthstate
- *
- * Again, I wouldn't endorse this for any production level use other than perhaps a bot.
- * Would recommend writing an auth state for use with a proper SQL or No-SQL DB
- * */
 export const useMultiFileAuthState = async (folder) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const writeData = async (data, file) => {
         const filePath = join(folder, fixFileName(file));
         const mutex = getFileLock(filePath);
@@ -83,7 +70,7 @@ export const useMultiFileAuthState = async (folder) => {
     else {
         await mkdir(folder, { recursive: true });
     }
-    const fixFileName = (file) => file?.replace(/\//g, '__')?.replace(/:/g, '-');
+    const fixFileName = (file) => file?.replace(/\
     const creds = (await readData('creds.json')) || initAuthCreds();
     return {
         state: {
@@ -118,4 +105,3 @@ export const useMultiFileAuthState = async (folder) => {
         }
     };
 };
-//# sourceMappingURL=use-multi-file-auth-state.js.map

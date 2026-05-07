@@ -219,7 +219,7 @@ export const DOUBLE_BYTE_TOKENS = [
         'suspended_group_deletion_notification',
         'binary_version',
         '018',
-        'https://www.whatsapp.com/otp/copy/',
+        'https:
         'reg_push',
         'shops_hide_catalog_attachment_entrypoint',
         'server_sync',
@@ -292,7 +292,7 @@ export const DOUBLE_BYTE_TOKENS = [
         'h.264',
         'smax_id',
         'group_description_length',
-        'https://www.whatsapp.com/otp/code',
+        'https:
         'status_image_max_edge',
         'smb_upsell_business_profile_enabled',
         '021',
@@ -1298,4 +1298,3 @@ for (const [i, DOUBLE_BYTE_TOKEN] of DOUBLE_BYTE_TOKENS.entries()) {
         TOKEN_MAP[element] = { dict: i, index: j };
     }
 }
-//# sourceMappingURL=constants.js.map

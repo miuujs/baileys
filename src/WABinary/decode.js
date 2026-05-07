@@ -8,7 +8,6 @@ export const decompressingIfRequired = async (buffer) => {
         buffer = await inflatePromise(buffer.slice(1));
     }
     else {
-        // nodes with no compression have a 0x00 prefix, we remove that
         buffer = buffer.slice(1);
     }
     return buffer;
@@ -124,7 +123,7 @@ export const decodeDecompressedBinaryNode = (buffer, opts, indexRef = { index: 0
         const domainType = Number(rawDomainType);
         const device = readByte();
         const user = readString(readByte());
-        let server = 's.whatsapp.net'; // default whatsapp server
+        let server = 's.whatsapp.net';
         if (domainType === WAJIDDomains.LID) {
             server = 'lid';
         }
@@ -218,7 +217,6 @@ export const decodeDecompressedBinaryNode = (buffer, opts, indexRef = { index: 0
     if (listSize === 0 || !header) {
         throw new Error('invalid node');
     }
-    // read the attributes in
     const attributesLength = (listSize - 1) >> 1;
     for (let i = 0; i < attributesLength; i++) {
         const key = readString(readByte());
@@ -259,4 +257,3 @@ export const decodeBinaryNode = async (buff) => {
     const decompBuff = await decompressingIfRequired(buff);
     return decodeDecompressedBinaryNode(decompBuff, constants);
 };
-//# sourceMappingURL=decode.js.map

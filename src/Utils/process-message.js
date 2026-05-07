@@ -52,7 +52,6 @@ async function storeTcTokensFromHistorySync(chats, signalRepository, keyStore, l
     if (Object.keys(entries).length) {
         logger?.debug({ count: Object.keys(entries).length }, 'storing tctokens from history sync');
         try {
-            // Include updated __index so cross-session pruning picks these JIDs up.
             const indexWrite = await buildMergedTcTokenIndexWrite(keyStore, Object.keys(entries));
             await keyStore.set({ tctoken: { ...entries, ...indexWrite } });
         }
@@ -61,66 +60,6 @@ async function storeTcTokensFromHistorySync(chats, signalRepository, keyStore, l
         }
     }
 }
-/** Cleans a received message to further processing */
-export const cleanMessage = (message, meId, meLid) => {
-    // ensure remoteJid and participant doesn't have device or agent in it
-    if (isHostedPnUser(message.key.remoteJid) || isHostedLidUser(message.key.remoteJid)) {
-        message.key.remoteJid = jidEncode(jidDecode(message.key?.remoteJid)?.user, isHostedPnUser(message.key.remoteJid) ? 's.whatsapp.net' : 'lid');
-    }
-    else {
-        message.key.remoteJid = jidNormalizedUser(message.key.remoteJid);
-    }
-    if (isHostedPnUser(message.key.participant) || isHostedLidUser(message.key.participant)) {
-        message.key.participant = jidEncode(jidDecode(message.key.participant)?.user, isHostedPnUser(message.key.participant) ? 's.whatsapp.net' : 'lid');
-    }
-    else {
-        message.key.participant = jidNormalizedUser(message.key.participant);
-    }
-    const content = normalizeMessageContent(message.message);
-    // if the message has a reaction, ensure fromMe & remoteJid are from our perspective
-    if (content?.reactionMessage) {
-        normaliseKey(content.reactionMessage.key);
-    }
-    if (content?.pollUpdateMessage) {
-        normaliseKey(content.pollUpdateMessage.pollCreationMessageKey);
-    }
-    function normaliseKey(msgKey) {
-        // if the reaction is from another user
-        // we've to correctly map the key to this user's perspective
-        if (!message.key.fromMe) {
-            // if the sender believed the message being reacted to is not from them
-            // we've to correct the key to be from them, or some other participant
-            msgKey.fromMe = !msgKey.fromMe
-                ? areJidsSameUser(msgKey.participant || msgKey.remoteJid, meId) ||
-                    areJidsSameUser(msgKey.participant || msgKey.remoteJid, meLid)
-                : // if the message being reacted to, was from them
-                    // fromMe automatically becomes false
-                    false;
-            // set the remoteJid to being the same as the chat the message came from
-            // TODO: investigate inconsistencies
-            msgKey.remoteJid = message.key.remoteJid;
-            // set participant of the message
-            msgKey.participant = msgKey.participant || message.key.participant;
-        }
-    }
-};
-// TODO: target:audit AUDIT THIS FUNCTION AGAIN
-export const isRealMessage = (message) => {
-    const normalizedContent = normalizeMessageContent(message.message);
-    const hasSomeContent = !!getContentType(normalizedContent);
-    return ((!!normalizedContent ||
-        REAL_MSG_STUB_TYPES.has(message.messageStubType) ||
-        REAL_MSG_REQ_ME_STUB_TYPES.has(message.messageStubType)) &&
-        hasSomeContent &&
-        !normalizedContent?.protocolMessage &&
-        !normalizedContent?.reactionMessage &&
-        !normalizedContent?.pollUpdateMessage);
-};
-export const shouldIncrementChatUnread = (message) => !message.key.fromMe && !message.messageStubType;
-/**
- * Get the ID of the chat from the given key.
- * Typically -- that'll be the remoteJid, but for broadcasts, it'll be the participant
- */
 export const getChatId = ({ remoteJid, participant, fromMe }) => {
     if (!remoteJid) {
         throw new Boom('Cannot derive chat id: message key is missing remoteJid', {
@@ -137,12 +76,6 @@ export const getChatId = ({ remoteJid, participant, fromMe }) => {
     }
     return remoteJid;
 };
-/**
- * Decrypt a poll vote
- * @param vote encrypted vote
- * @param ctx additional info about the poll required for decryption
- * @returns list of SHA256 options
- */
 export function decryptPollVote({ encPayload, encIv }, { pollCreatorJid, pollMsgId, pollEncKey, voterJid }) {
     const sign = Buffer.concat([
         toBinary(pollMsgId),
@@ -160,12 +93,6 @@ export function decryptPollVote({ encPayload, encIv }, { pollCreatorJid, pollMsg
         return Buffer.from(txt);
     }
 }
-/**
- * Decrypt an event response
- * @param response encrypted event response
- * @param ctx additional info about the event required for decryption
- * @returns event response message
- */
 export function decryptEventResponse({ encPayload, encIv }, { eventCreatorJid, eventMsgId, eventEncKey, responderJid }) {
     const sign = Buffer.concat([
         toBinary(eventMsgId),
@@ -191,14 +118,11 @@ const processMessage = async (message, { shouldProcessHistoryMsg, placeholderRes
     if (isRealMsg) {
         chat.messages = [{ message }];
         chat.conversationTimestamp = toNumber(message.messageTimestamp);
-        // only increment unread count if not CIPHERTEXT and from another person
         if (shouldIncrementChatUnread(message)) {
             chat.unreadCount = (chat.unreadCount || 0) + 1;
         }
     }
     const content = normalizeMessageContent(message.message);
-    // unarchive chat if it's a real message, or someone reacted to our message
-    // and we've the unarchive chats setting on
     if ((isRealMsg || content?.reactionMessage?.key?.fromMe) && accountSettings?.unarchiveChats) {
         chat.archived = false;
         chat.readOnly = false;
@@ -217,7 +141,6 @@ const processMessage = async (message, { shouldProcessHistoryMsg, placeholderRes
                     isLatest
                 }, 'got history notification');
                 if (process) {
-                    // TODO: investigate
                     if (histNotification.syncType !== proto.HistorySync.HistorySyncType.ON_DEMAND) {
                         ev.emit('creds.update', {
                             processedHistoryMessages: [
@@ -282,31 +205,22 @@ const processMessage = async (message, { shouldProcessHistoryMsg, placeholderRes
             case proto.Message.ProtocolMessage.Type.PEER_DATA_OPERATION_REQUEST_RESPONSE_MESSAGE:
                 const response = protocolMsg.peerDataOperationRequestResponseMessage;
                 if (response) {
-                    // TODO: IMPLEMENT HISTORY SYNC ETC (sticker uploads etc.).
                     const peerDataOperationResult = response.peerDataOperationResult || [];
                     for (const result of peerDataOperationResult) {
                         const retryResponse = result?.placeholderMessageResendResponse;
-                        //eslint-disable-next-line max-depth
                         if (!retryResponse?.webMessageInfoBytes) {
                             continue;
                         }
-                        //eslint-disable-next-line max-depth
                         try {
                             const webMessageInfo = proto.WebMessageInfo.decode(retryResponse.webMessageInfoBytes);
                             const msgId = webMessageInfo.key?.id;
-                            // Retrieve cached original message data (preserves LID details,
-                            // timestamps, etc. that the phone may omit in its PDO response)
                             const cachedData = msgId ? await placeholderResendCache?.get(msgId) : undefined;
-                            //eslint-disable-next-line max-depth
                             if (msgId) {
                                 await placeholderResendCache?.del(msgId);
                             }
                             let finalMsg;
-                            //eslint-disable-next-line max-depth
                             if (cachedData && typeof cachedData === 'object') {
-                                // Apply decoded message content onto cached metadata (preserves LID etc.)
                                 cachedData.message = webMessageInfo.message;
-                                //eslint-disable-next-line max-depth
                                 if (webMessageInfo.messageTimestamp) {
                                     cachedData.messageTimestamp = webMessageInfo.messageTimestamp;
                                 }
@@ -331,7 +245,6 @@ const processMessage = async (message, { shouldProcessHistoryMsg, placeholderRes
             case proto.Message.ProtocolMessage.Type.MESSAGE_EDIT:
                 ev.emit('messages.update', [
                     {
-                        // flip the sender / fromMe properties because they're in the perspective of the sender
                         key: { ...message.key, id: protocolMsg.key?.id },
                         update: {
                             message: {
@@ -390,12 +303,10 @@ const processMessage = async (message, { shouldProcessHistoryMsg, placeholderRes
     else if (content?.encEventResponseMessage) {
         const encEventResponse = content.encEventResponseMessage;
         const creationMsgKey = encEventResponse.eventCreationMessageKey;
-        // we need to fetch the event creation message to get the event enc key
         const eventMsg = await getMessage(creationMsgKey);
         if (eventMsg) {
             try {
                 const meIdNormalised = jidNormalizedUser(meId);
-                // all jids need to be PN
                 const eventCreatorKey = creationMsgKey.participant || creationMsgKey.remoteJid;
                 const eventCreatorPn = isLidUser(eventCreatorKey)
                     ? await signalRepository.lidMapping.getPNForLID(eventCreatorKey)
@@ -438,7 +349,6 @@ const processMessage = async (message, { shouldProcessHistoryMsg, placeholderRes
     }
     else if (message.messageStubType) {
         const jid = message.key?.remoteJid;
-        //let actor = whatsappID (message.participant)
         let participants;
         const emitParticipantsUpdate = (action) => ev.emit('group-participants.update', {
             id: jid,
@@ -471,7 +381,7 @@ const processMessage = async (message, { shouldProcessHistoryMsg, placeholderRes
                 method: method
             });
         };
-        const participantsIncludesMe = () => participants.find(jid => areJidsSameUser(meId, jid.phoneNumber)); // ADD SUPPORT FOR LID
+        const participantsIncludesMe = () => participants.find(jid => areJidsSameUser(meId, jid.phoneNumber));
         switch (message.messageStubType) {
             case WAMessageStubType.GROUP_PARTICIPANT_CHANGE_NUMBER:
                 participants = message.messageStubParameters.map((a) => JSON.parse(a)) || [];
@@ -481,7 +391,6 @@ const processMessage = async (message, { shouldProcessHistoryMsg, placeholderRes
             case WAMessageStubType.GROUP_PARTICIPANT_REMOVE:
                 participants = message.messageStubParameters.map((a) => JSON.parse(a)) || [];
                 emitParticipantsUpdate('remove');
-                // mark the chat read only if you left the group
                 if (participantsIncludesMe()) {
                     chat.readOnly = true;
                 }
@@ -533,65 +442,15 @@ const processMessage = async (message, { shouldProcessHistoryMsg, placeholderRes
                 const approvalMode = message.messageStubParameters?.[0];
                 emitGroupUpdate({ joinApprovalMode: approvalMode === 'on' });
                 break;
-            case WAMessageStubType.GROUP_MEMBERSHIP_JOIN_APPROVAL_REQUEST_NON_ADMIN_ADD: // TODO: Add other events
+            case WAMessageStubType.GROUP_MEMBERSHIP_JOIN_APPROVAL_REQUEST_NON_ADMIN_ADD:
                 const participant = JSON.parse(message.messageStubParameters?.[0]);
                 const action = message.messageStubParameters?.[1];
                 const method = message.messageStubParameters?.[2];
                 emitGroupRequestJoin(participant, action, method);
                 break;
         }
-    } /*  else if(content?.pollUpdateMessage) {
-        const creationMsgKey = content.pollUpdateMessage.pollCreationMessageKey!
-        // we need to fetch the poll creation message to get the poll enc key
-        // TODO: make standalone, remove getMessage reference
-        // TODO: Remove entirely
-        const pollMsg = await getMessage(creationMsgKey)
-        if(pollMsg) {
-            const meIdNormalised = jidNormalizedUser(meId)
-            const pollCreatorJid = getKeyAuthor(creationMsgKey, meIdNormalised)
-            const voterJid = getKeyAuthor(message.key, meIdNormalised)
-            const pollEncKey = pollMsg.messageContextInfo?.messageSecret!
-
-            try {
-                const voteMsg = decryptPollVote(
-                    content.pollUpdateMessage.vote!,
-                    {
-                        pollEncKey,
-                        pollCreatorJid,
-                        pollMsgId: creationMsgKey.id!,
-                        voterJid,
-                    }
-                )
-                ev.emit('messages.update', [
-                    {
-                        key: creationMsgKey,
-                        update: {
-                            pollUpdates: [
-                                {
-                                    pollUpdateMessageKey: message.key,
-                                    vote: voteMsg,
-                                    senderTimestampMs: (content.pollUpdateMessage.senderTimestampMs! as Long).toNumber(),
-                                }
-                            ]
-                        }
-                    }
-                ])
-            } catch(err) {
-                logger?.warn(
-                    { err, creationMsgKey },
-                    'failed to decrypt poll vote'
-                )
-            }
-        } else {
-            logger?.warn(
-                { creationMsgKey },
-                'poll creation message not found, cannot decrypt update'
-            )
-        }
-        } */
     if (Object.keys(chat).length > 1) {
         ev.emit('chats.update', [chat]);
     }
 };
 export default processMessage;
-//# sourceMappingURL=process-message.js.map
