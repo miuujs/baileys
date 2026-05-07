@@ -579,6 +579,7 @@ export const makeSocket = (config) => {
             name: '~'
         };
         ev.emit('creds.update', authState.creds);
+        await handshakeComplete;
         await sendNode({
             tag: 'iq',
             attrs: {
@@ -664,6 +665,9 @@ export const makeSocket = (config) => {
         catch (err) {
             logger.error({ err }, 'error in validating connection');
             void end(err);
+        }
+        finally {
+            resolveHandshake();
         }
     });
     ws.on('error', mapWebSocketError(end));
@@ -803,6 +807,10 @@ export const makeSocket = (config) => {
     });
 
     let didStartBuffer = false;
+    let resolveHandshake;
+    const handshakeComplete = new Promise((resolve) => {
+        resolveHandshake = resolve;
+    });
     process.nextTick(() => {
         if (creds.me?.id) {
             ev.buffer();
