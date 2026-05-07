@@ -1,42 +1,8 @@
-# yebail
-
-WhatsApp Web API Library based on `@whiskeysockets/baileys` v7.0.0-rc10
-
----
-
-## Example
-
-```js
-import makeWASocket, { useMultiFileAuthState, DisconnectReason } from "baileys";
-
-async function start() {
-  const { state, saveCreds } = await useMultiFileAuthState("auth");
-
-  const sock = makeWASocket({ auth: state });
-
-  sock.ev.on("creds.update", saveCreds);
-
-  sock.ev.on("connection.update", ({ connection, lastDisconnect }) => {
-    if (connection === "close") {
-      if (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut) {
-        start();
-      }
-    } else if (connection === "open") {
-      console.log("Connected!");
-    }
-  });
-
-  sock.ev.on("messages.upsert", ({ messages }) => {
-    for (const msg of messages) {
-      if (!msg.key.fromMe) {
-        sock.sendMessage(msg.key.remoteJid, { text: "hello" });
-      }
-    }
-  });
-}
-
-start();
-```
+<p align="center">
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=42&pause=1000&color=25D366&center=true&vCenter=true&width=435&lines=yelib" alt="yelib"/>
+  <br/>
+  <sub>WhatsApp Web API Library &mdash; based on @whiskeysockets/baileys v7.0.0-rc10</sub>
+</p>
 
 ---
 
