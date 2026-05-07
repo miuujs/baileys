@@ -564,315 +564,129 @@ await sock.relayMessage(jid, msg.message, {});
 
 ---
 
-## Rich Messages
+## Rich Response
 
-### Poll Message
+### Buttons Response
+
+Handle user replies from native flow buttons.
 
 ```js
-await sock.sendMessage(jid, {
-  poll: {
-    name: "Best programming language?",
-    values: ["JavaScript", "Python", "Go", "Rust"],
-    selectableCount: 1,
-    toAnnouncementGroup: false,
-  },
+sock.ev.on("messages.upsert", ({ messages }) => {
+  for (const msg of messages) {
+    const content = msg.message;
+    if (content?.interactiveResponseMessage?.nativeFlowResponseMessage) {
+      const data = JSON.parse(
+        content.interactiveResponseMessage.nativeFlowResponseMessage.responseJson
+      );
+      const { id, display_text } = data;
+      console.log("Button clicked:", id, display_text);
+    }
+  }
 });
 ```
 
-### Poll with Multiple Votes
+### Legacy Buttons Response
 
 ```js
-await sock.sendMessage(jid, {
-  poll: {
-    name: "Choose your toppings (multiple)",
-    values: ["Cheese", "Pepperoni", "Mushrooms", "Olives"],
-    selectableCount: 3,
-  },
+sock.ev.on("messages.upsert", ({ messages }) => {
+  for (const msg of messages) {
+    if (msg.message?.buttonsResponseMessage) {
+      const res = msg.message.buttonsResponseMessage;
+      console.log("Button ID:", res.selectedButtonId);
+      console.log("Button text:", res.selectedDisplayText);
+    }
+  }
 });
 ```
 
-### Reaction Message
+### List Response
 
 ```js
-await sock.sendMessage(jid, {
-  react: {
-    text: "❤️",
-    key: targetMessage.key,
-  },
-});
-
-// Remove reaction (empty string)
-await sock.sendMessage(jid, {
-  react: {
-    text: "",
-    key: targetMessage.key,
-  },
+sock.ev.on("messages.upsert", ({ messages }) => {
+  for (const msg of messages) {
+    if (msg.message?.listResponseMessage) {
+      const res = msg.message.listResponseMessage;
+      console.log("Selected row ID:", res.singleSelectReply?.selectedRowId);
+      console.log("List title:", res.title);
+      console.log("Description:", res.description);
+    }
+  }
 });
 ```
 
-### Location Message
+### Template Response
 
 ```js
-await sock.sendMessage(jid, {
-  location: {
-    degreesLatitude: -6.2088,
-    degreesLongitude: 106.8456,
-    name: "Monas",
-    address: "Central Jakarta",
-    isLivelocation: false,
-    accuracyInMeters: 10,
-    degreesClockwiseFromMagneticNorth: 0,
-    comment: "Meeting point",
-    url: "https://maps.google.com/?q=-6.2088,106.8456",
-  },
+sock.ev.on("messages.upsert", ({ messages }) => {
+  for (const msg of messages) {
+    if (msg.message?.templateButtonReplyMessage) {
+      const res = msg.message.templateButtonReplyMessage;
+      console.log("Template reply ID:", res.selectedId);
+      console.log("Template reply text:", res.selectedDisplayText);
+    }
+  }
 });
 ```
 
-### Live Location
+### Poll Response (Vote)
+
+```js
+import { getAggregateVotesInPollMessage } from "baileys";
+
+sock.ev.on("messages.update", async (updates) => {
+  for (const { key, update } of updates) {
+    if (update.pollUpdates) {
+      const pollCreation = await getMessage(key); // from your store
+      if (pollCreation) {
+        const votes = getAggregateVotesInPollMessage({
+          message: pollCreation,
+          pollUpdates: update.pollUpdates,
+        });
+        console.log("Poll results:", votes);
+      }
+    }
+  }
+});
+```
+
+### Sending Rich Response Messages
 
 ```js
 import { proto } from "baileys";
 
-const liveLoc = proto.Message.LiveLocationMessage.create({
-  degreesLatitude: -6.2088,
-  degreesLongitude: 106.8456,
-  accuracyInMeters: 10,
-  speedInMps: 0,
-  degreesClockwiseFromMagneticNorth: 0,
-  caption: "On my way",
-  sequenceNumber: 1,
-  timeOffset: 0,
+// Send buttons response manually
+const btnRes = proto.Message.ButtonsResponseMessage.create({
+  selectedButtonId: "btn_1",
+  selectedDisplayText: "Option A",
+  type: proto.Message.ButtonsResponseMessage.Type.NATIVE_FLOW,
   contextInfo: {},
 });
 
-await sock.relayMessage(jid, { liveLocationMessage: liveLoc }, {});
-```
+await sock.relayMessage(jid, { buttonsResponseMessage: btnRes }, {});
 
-### Contact Message
-
-```js
-const vcard =
-  "BEGIN:VCARD\n" +
-  "VERSION:3.0\n" +
-  "FN:John Doe\n" +
-  "ORG:Company\n" +
-  "TEL;type=CELL;type=VOICE;waid=6281234567890:+62 812 3456 7890\n" +
-  "EMAIL:john@example.com\n" +
-  "ADR:;;Street;City;;;\n" +
-  "URL:https://example.com\n" +
-  "NOTE:Contact note\n" +
-  "END:VCARD";
-
-await sock.sendMessage(jid, {
-  contacts: {
-    displayName: "John Doe",
-    contacts: [{ vcard }],
+// Send list response manually
+const listRes = proto.Message.ListResponseMessage.create({
+  title: "Selected Option",
+  listType: proto.Message.ListResponseMessage.ListType.LIST,
+  singleSelectReply: {
+    selectedRowId: "row_a",
   },
-});
-```
-
-### Multiple Contacts
-
-```js
-await sock.sendMessage(jid, {
-  contacts: {
-    displayName: "Contacts",
-    contacts: [
-      { vcard: "BEGIN:VCARD\nVERSION:3.0\nFN:Alice\nEND:VCARD" },
-      { vcard: "BEGIN:VCARD\nVERSION:3.0\nFN:Bob\nEND:VCARD" },
-    ],
-  },
-});
-```
-
-### Group Invite Message
-
-```js
-import { proto } from "baileys";
-
-const invite = proto.Message.GroupInviteMessage.create({
-  groupJid: "123456789-123456@g.us",
-  inviteCode: "abc123def",
-  inviteExpiration: Math.floor(Date.now() / 1000) + 86400,
-  groupName: "My Group",
-  caption: "Join us!",
-});
-
-await sock.relayMessage(jid, { groupInviteMessage: invite }, {});
-```
-
-### Product Message
-
-```js
-import { proto } from "baileys";
-
-const product = proto.Message.ProductMessage.create({
-  product: {
-    productId: "product_123",
-    title: "Cool Product",
-    description: "Product description",
-    currencyCode: "USD",
-    priceAmount1000: 19999,
-    retailerId: "retailer_1",
-    productImageCount: 3,
-  },
-  businessOwnerJid: "6281234567890@s.whatsapp.net",
   contextInfo: {},
 });
 
-await sock.relayMessage(jid, { productMessage: product }, {});
-```
+await sock.relayMessage(jid, { listResponseMessage: listRes }, {});
 
-### Order Message
-
-```js
-import { proto } from "baileys";
-
-const order = proto.Message.OrderMessage.create({
-  orderId: "order_001",
-  thumbnail: Buffer.from("..."),
-  itemCount: 2,
-  status: proto.Message.OrderMessage.OrderStatus.PENDING,
-  surface: proto.Message.OrderMessage.OrderSurface.MAGENTA,
-  message: "Thank you for your order",
-  orderTitle: "Order #001",
-  sellerJid: "6281234567890@s.whatsapp.net",
-  token: "token_value",
-  totalAmount1000: 50000,
-  totalCurrencyCode: "IDR",
+// Send interactive response manually
+const ir = proto.Message.InteractiveResponseMessage.create({
+  nativeFlowResponseMessage:
+    proto.Message.InteractiveResponseMessage.NativeFlowResponseMessage.create({
+      name: "quick_reply",
+      responseJson: JSON.stringify({ id: "btn_1", display_text: "OK" }),
+    }),
   contextInfo: {},
 });
 
-await sock.relayMessage(jid, { orderMessage: order }, {});
-```
-
-### Event Message (Calendar)
-
-```js
-import { proto } from "baileys";
-
-const event = proto.Message.EventMessage.create({
-  name: "Team Meeting",
-  description: "Weekly sync",
-  startTime: Math.floor(Date.now() / 1000) + 3600,
-  endTime: Math.floor(Date.now() / 1000) + 7200,
-  location: {
-    degreesLatitude: -6.2088,
-    degreesLongitude: 106.8456,
-    name: "Office",
-  },
-  isCanceled: false,
-});
-
-await sock.relayMessage(jid, { eventMessage: event }, {});
-```
-
-### Voice Message (PTT)
-
-```js
-await sock.sendMessage(jid, {
-  audio: { url: "./recording.ogg" },
-  mimetype: "audio/ogg",
-  ptt: true,
-});
-```
-
-### Sticker Message
-
-```js
-import { proto } from "baileys";
-
-// Send from buffer
-await sock.sendMessage(jid, {
-  sticker: Buffer.from(stickerBuffer),
-});
-
-// Send from URL
-await sock.sendMessage(jid, {
-  sticker: { url: "https://example.com/sticker.webp" },
-});
-```
-
-### Gif Message
-
-```js
-await sock.sendMessage(jid, {
-  video: { url: "./animation.mp4" },
-  gifPlayback: true,
-  caption: "Animated gif",
-});
-```
-
-### Video Note (PTV)
-
-```js
-await sock.sendMessage(jid, {
-  video: { url: "./video.mp4" },
-  ptv: true,
-  caption: "Video note",
-});
-```
-
-### Edit Message
-
-```js
-const sent = await sock.sendMessage(jid, { text: "Original text" });
-
-await sock.sendMessage(jid, {
-  text: "Edited text",
-  edit: sent.key,
-});
-```
-
-### Delete Message
-
-```js
-// For everyone
-await sock.sendMessage(jid, { delete: msg.key });
-
-// For me only
-await sock.chatModify(
-  {
-    clear: {
-      messages: [{ id: msg.key.id, fromMe: true, timestamp: msg.messageTimestamp }],
-    },
-  },
-  jid
-);
-```
-
-### Pin Message
-
-```js
-// Pin (86400 = 24h, 604800 = 7d, 2592000 = 30d)
-await sock.sendMessage(jid, {
-  pin: {
-    type: 1, // 0 to unpin
-    time: 86400,
-    key: msg.key,
-  },
-});
-
-// Unpin
-await sock.sendMessage(jid, {
-  pin: {
-    type: 0,
-    key: msg.key,
-  },
-});
-```
-
-### Disappearing Messages
-
-```js
-// Set chat ephemeral (86400 = 24h, 604800 = 7d, 7776000 = 90d)
-await sock.sendMessage(jid, { disappearingMessagesInChat: 86400 });
-
-// Send message with custom ephemeral
-await sock.sendMessage(jid, { text: "Will disappear" }, { ephemeralExpiration: 86400 });
-
-// Disable disappearing messages
-await sock.sendMessage(jid, { disappearingMessagesInChat: false });
+await sock.relayMessage(jid, { interactiveResponseMessage: ir }, {});
 ```
 
 ---
@@ -907,6 +721,280 @@ sock.ev.on("messages.upsert", ({ messages }) => {
 
 ---
 
-## Acknowledgements
+## Meta AI Rich Response (AIRichResponseMessage)
+
+Meta AI sends rich responses as field `richResponseMessage` (field 97) in the `Message` container. Each rich response contains one or more `submessages` of different types.
+
+### Receiving Meta AI Rich Responses
+
+```js
+sock.ev.on("messages.upsert", ({ messages }) => {
+  for (const msg of messages) {
+    const rich = msg.message?.richResponseMessage;
+    if (!rich) continue;
+
+    for (const sub of rich.submessages) {
+      switch (sub.messageType) {
+        case 1: // AI_RICH_RESPONSE_GRID_IMAGE
+          console.log("Grid image:", sub.gridImageMetadata);
+          break;
+        case 2: // AI_RICH_RESPONSE_TEXT
+          console.log("Text:", sub.messageText);
+          break;
+        case 3: // AI_RICH_RESPONSE_INLINE_IMAGE
+          console.log("Inline image:", sub.imageMetadata);
+          break;
+        case 4: // AI_RICH_RESPONSE_TABLE
+          console.log("Table:", sub.tableMetadata);
+          break;
+        case 5: // AI_RICH_RESPONSE_CODE
+          console.log("Code block:", sub.codeMetadata);
+          break;
+        case 6: // AI_RICH_RESPONSE_DYNAMIC
+          console.log("Dynamic content:", sub.dynamicMetadata);
+          break;
+        case 7: // AI_RICH_RESPONSE_MAP
+          console.log("Map:", sub.mapMetadata);
+          break;
+        case 8: // AI_RICH_RESPONSE_LATEX
+          console.log("Latex:", sub.latexMetadata);
+          break;
+        case 9: // AI_RICH_RESPONSE_CONTENT_ITEMS
+          console.log("Content items:", sub.contentItemsMetadata);
+          break;
+      }
+    }
+  }
+});
+```
+
+### Rich Response Submessage Types
+
+| Type | Value | Metadata | Description |
+|------|-------|----------|-------------|
+| `AI_RICH_RESPONSE_GRID_IMAGE` | 1 | `AIRichResponseGridImageMetadata` | Grid of images |
+| `AI_RICH_RESPONSE_TEXT` | 2 | `string messageText` | Plain text segment |
+| `AI_RICH_RESPONSE_INLINE_IMAGE` | 3 | `AIRichResponseInlineImageMetadata` | Image with text alignment |
+| `AI_RICH_RESPONSE_TABLE` | 4 | `AIRichResponseTableMetadata` | Data table with rows |
+| `AI_RICH_RESPONSE_CODE` | 5 | `AIRichResponseCodeMetadata` | Code block with syntax highlighting |
+| `AI_RICH_RESPONSE_DYNAMIC` | 6 | `AIRichResponseDynamicMetadata` | Animated image/GIF |
+| `AI_RICH_RESPONSE_MAP` | 7 | `AIRichResponseMapMetadata` | Map with annotations |
+| `AI_RICH_RESPONSE_LATEX` | 8 | `AIRichResponseLatexMetadata` | LaTeX mathematical expressions |
+| `AI_RICH_RESPONSE_CONTENT_ITEMS` | 9 | `AIRichResponseContentItemsMetadata` | Content carousel/reels |
+
+### Grid Image
+
+```js
+// AIRichResponseGridImageMetadata
+{
+  gridImageUrl: {
+    imagePreviewUrl: "https://...preview.jpg",
+    imageHighResUrl: "https://...hq.jpg",
+    sourceUrl: "https://source.com",
+  },
+  imageUrls: [
+    { imagePreviewUrl: "...", imageHighResUrl: "..." },
+  ],
+}
+```
+
+### Inline Image
+
+```js
+// AIRichResponseInlineImageMetadata
+{
+  imageUrl: {
+    imagePreviewUrl: "https://...preview.jpg",
+    imageHighResUrl: "https://...hq.jpg",
+  },
+  imageText: "A scenic mountain view",
+  alignment: 0, // LEADING=0, TRAILING=1, CENTER=2
+  tapLinkUrl: "https://example.com",
+}
+```
+
+### Code Block
+
+```js
+// AIRichResponseCodeMetadata
+{
+  codeLanguage: "javascript",
+  codeBlocks: [
+    {
+      highlightType: 0, // DEFAULT=0, KEYWORD=1, METHOD=2, STRING=3, NUMBER=4, COMMENT=5
+      codeContent: "const x = 42;",
+    },
+  ],
+}
+```
+
+### Table
+
+```js
+// AIRichResponseTableMetadata
+{
+  title: "Population by City",
+  rows: [
+    { items: ["City", "Population", "Area"], isHeading: true },
+    { items: ["Jakarta", "10M", "661 km²"], isHeading: false },
+    { items: ["Bandung", "2.5M", "167 km²"], isHeading: false },
+  ],
+}
+```
+
+### Map
+
+```js
+// AIRichResponseMapMetadata
+{
+  centerLatitude: -6.2088,
+  centerLongitude: 106.8456,
+  latitudeDelta: 0.1,
+  longitudeDelta: 0.1,
+  showInfoList: true,
+  annotations: [
+    {
+      annotationNumber: 1,
+      latitude: -6.2088,
+      longitude: 106.8456,
+      title: "Monas",
+      body: "National Monument",
+    },
+  ],
+}
+```
+
+### Dynamic Content (GIF/Animation)
+
+```js
+// AIRichResponseDynamicMetadata
+{
+  type: 1, // IMAGE=1, GIF=2
+  version: 1,
+  url: "https://...animation.gif",
+  loopCount: 3,
+}
+```
+
+### LaTeX Expression
+
+```js
+// AIRichResponseLatexMetadata
+{
+  text: "The quadratic formula:",
+  expressions: [
+    {
+      latexExpression: "x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}",
+      url: "https://...latex-render.png",
+      width: 200.0,
+      height: 50.0,
+      fontHeight: 14.0,
+    },
+  ],
+}
+```
+
+### Content Items (Carousel/Reels)
+
+```js
+// AIRichResponseContentItemsMetadata
+{
+  contentType: 1, // DEFAULT=0, CAROUSEL=1
+  itemsMetadata: [
+    {
+      reelItem: {
+        title: "Video Title",
+        profileIconUrl: "https://...icon.jpg",
+        thumbnailUrl: "https://...thumb.jpg",
+        videoUrl: "https://...video.mp4",
+      },
+    },
+  ],
+}
+```
+
+### Source Citations (BotSourcesMetadata)
+
+Meta AI responses include source citations in `WebMessageInfo.messageContextInfo?.botMetadata?.richResponseSourcesMetadata`.
+
+```js
+sock.ev.on("messages.upsert", ({ messages }) => {
+  for (const msg of messages) {
+    const botMeta = msg.messageContextInfo?.botMetadata;
+    if (!botMeta) continue;
+
+    const sources = botMeta.richResponseSourcesMetadata;
+    if (sources) {
+      for (const src of sources.sources) {
+        console.log(`[${src.citationNumber}] ${src.sourceTitle}`);
+        console.log("  URL:", src.sourceProviderUrl);
+        console.log("  Provider:", src.provider); // 1=BING, 2=GOOGLE, 3=SUPPORT, 4=OTHER
+        console.log("  Query:", src.sourceQuery);
+      }
+    }
+  }
+});
+```
+
+### Bot Metadata Fields
+
+The `messageContextInfo.botMetadata` object contains:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `botResponseId` | `string` | Unique response ID |
+| `richResponseSourcesMetadata` | `BotSourcesMetadata` | Source citations |
+| `unifiedResponseMutation` | `BotUnifiedResponseMutation` | Response mutation/patching |
+| `personaId` | `string` | AI persona identifier |
+| `timezone` | `string` | User timezone |
+| `messageDisclaimerText` | `string` | Disclaimer text |
+| `botResponseId` | `string` | Response identifier |
+| `regenerateMetadata` | `AIRegenerateMetadata` | Regeneration info |
+| `botThreadInfo` | `AIThreadInfo` | Thread metadata |
+| `sessionMetadata` | `BotSessionMetadata` | Session info |
+
+### Question Response
+
+Status question answers come as `questionResponseMessage` (field 107):
+
+```js
+sock.ev.on("messages.upsert", ({ messages }) => {
+  for (const msg of messages) {
+    const qr = msg.message?.questionResponseMessage;
+    if (qr) {
+      console.log("Question response key:", qr.key);
+      console.log("Response text:", qr.text);
+    }
+  }
+});
+```
+
+### Event Response (RSVP)
+
+Calendar event RSVPs come as `eventResponseMessage` (decrypted from `encEventResponseMessage`):
+
+```js
+sock.ev.on("messages.upsert", async ({ messages }) => {
+  for (const msg of messages) {
+    if (msg.message?.encEventResponseMessage) {
+      // baileys auto-decrypts this
+      // Check WebMessageInfo.eventResponses instead
+    }
+  }
+});
+
+// Event responses appear in WebMessageInfo.eventResponses
+// msg.eventResponses -> array of EventResponse
+// {
+//   eventResponseMessageKey: { ... },
+//   timestampMs: 1234567890,
+//   eventResponseMessage: {
+//     response: 1, // UNKNOWN=0, GOING=1, NOT_GOING=2, MAYBE=3
+//     timestampMs: 1234567890,
+//     extraGuestCount: 0,
+//   },
+//   unread: false,
+// }
+```
 
 Based on [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys) v7.0.0-rc10 by Rajeh Taher & the WhiskeySockets community.
