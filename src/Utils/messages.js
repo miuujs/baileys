@@ -28,11 +28,6 @@ const MessageTypeProto = {
     document: WAProto.Message.DocumentMessage
 };
 
-/**
- * Uses a regex to test whether the string contains a URL, and returns the URL if it does.
- * @param text eg. hello https://google.com
- * @returns the URL, eg. https://google.com
- */
 export const extractUrlFromText = (text) => text.match(URL_REGEX)?.[0];
 
 export const generateLinkPreviewIfRequired = async (text, getUrlInfo, logger) => {
@@ -43,7 +38,7 @@ export const generateLinkPreviewIfRequired = async (text, getUrlInfo, logger) =>
             return urlInfo;
         }
         catch (error) {
-            // ignore if fails
+
             logger?.warn({ trace: error.stack }, 'url generation failed');
         }
     }
@@ -80,7 +75,7 @@ export const prepareWAMessageMedia = async (message, options) => {
         media: message[mediaType]
     };
     delete uploadData[mediaType];
-    // check if cacheable + generate cache key
+
     const cacheableKey = typeof uploadData.media === 'object' &&
         'url' in uploadData.media &&
         !!uploadData.media.url &&
@@ -114,7 +109,7 @@ export const prepareWAMessageMedia = async (message, options) => {
         });
         await fs.unlink(filePath);
         const obj = WAProto.Message.fromObject({
-            // todo: add more support here
+
             [`${mediaType}Message`]: MessageTypeProto[mediaType].fromObject({
                 url: mediaUrl,
                 directPath,
@@ -238,17 +233,12 @@ export const prepareDisappearingMessageSettingContent = (ephemeralExpiration) =>
     return WAProto.Message.fromObject(content);
 };
 
-/**
- * Generate forwarded message content like WA does
- * @param message the message to forward
- * @param options.forceForward will show the message as forwarded even if it is from you
- */
 export const generateForwardMessageContent = (message, forceForward) => {
     let content = message.message;
     if (!content) {
         throw new Boom('no content in message', { statusCode: 400 });
     }
-    // hacky copy
+
     content = normalizeMessageContent(content);
     content = proto.Message.decode(proto.Message.encode(content).finish());
     let key = Object.keys(content)[0];
@@ -362,8 +352,7 @@ export const generateWAMessageContent = async (message, options) => {
         m.groupInviteMessage.caption = message.groupInvite.text;
         m.groupInviteMessage.groupJid = message.groupInvite.jid;
         m.groupInviteMessage.groupName = message.groupInvite.subject;
-        //TODO: use built-in interface and get disappearing mode info etc.
-        //TODO: cache / use store!?
+
         if (options.getProfilePicUrl) {
             const pfpUrl = await options.getProfilePicUrl(message.groupInvite.jid, 'preview');
             if (pfpUrl) {
@@ -426,7 +415,7 @@ export const generateWAMessageContent = async (message, options) => {
             m.eventMessage.joinLink = (message.event.call === 'audio' ? CALL_AUDIO_PREFIX : CALL_VIDEO_PREFIX) + token;
         }
         m.messageContextInfo = {
-            // encKey
+
             messageSecret: message.event.messageSecret || randomBytes(32)
         };
         m.eventMessage.name = message.event.name;
@@ -450,7 +439,7 @@ export const generateWAMessageContent = async (message, options) => {
             });
         }
         m.messageContextInfo = {
-            // encKey
+
             messageSecret: message.poll.messageSecret || randomBytes(32)
         };
         const pollCreationMessage = {
@@ -459,16 +448,16 @@ export const generateWAMessageContent = async (message, options) => {
             options: message.poll.values.map(optionName => ({ optionName }))
         };
         if (message.poll.toAnnouncementGroup) {
-            // poll v2 is for community announcement groups (single select and multiple)
+
             m.pollCreationMessageV2 = pollCreationMessage;
         }
         else {
             if (message.poll.selectableCount === 1) {
-                //poll v3 is for single select polls
+
                 m.pollCreationMessageV3 = pollCreationMessage;
             }
             else {
-                // poll for multiple choice polls
+
                 m.pollCreationMessage = pollCreationMessage;
             }
         }
@@ -563,8 +552,7 @@ export const generateWAMessageContent = async (message, options) => {
 };
 
 export const generateWAMessageFromContent = (jid, message, options) => {
-    // set timestamp to now
-    // if not specified
+
     if (!options.timestamp) {
         options.timestamp = new Date();
     }
@@ -574,11 +562,11 @@ export const generateWAMessageFromContent = (jid, message, options) => {
     const { quoted, userJid } = options;
     if (quoted && !isJidNewsletter(jid)) {
         const participant = quoted.key.fromMe
-            ? userJid // TODO: Add support for LIDs
+            ? userJid
             : quoted.participant || quoted.key.participant || quoted.key.remoteJid;
         let quotedMsg = normalizeMessageContent(quoted.message);
         const msgType = getContentType(quotedMsg);
-        // strip any redundant properties
+
         quotedMsg = proto.Message.create({ [msgType]: quotedMsg[msgType] });
         const quotedContent = quotedMsg[msgType];
         if (typeof quotedContent === 'object' && quotedContent && 'contextInfo' in quotedContent) {
@@ -588,27 +576,26 @@ export const generateWAMessageFromContent = (jid, message, options) => {
         contextInfo.participant = jidNormalizedUser(participant);
         contextInfo.stanzaId = quoted.key.id;
         contextInfo.quotedMessage = quotedMsg;
-        // if a participant is quoted, then it must be a group
-        // hence, remoteJid of group must also be entered
+
         if (jid !== quoted.key.remoteJid) {
             contextInfo.remoteJid = quoted.key.remoteJid;
         }
         if (contextInfo && innerMessage[key]) {
-            /* @ts-ignore */
+
             innerMessage[key].contextInfo = contextInfo;
         }
     }
     if (
-        // if we want to send a disappearing message
+
         !!options?.ephemeralExpiration &&
-        // and it's not a protocol message -- delete, toggle disappear message
+
         key !== 'protocolMessage' &&
-        // already not converted to disappearing message
+
         key !== 'ephemeralMessage' &&
-        // newsletters don't support ephemeral messages
+
         !isJidNewsletter(jid)
     ) {
-        /* @ts-ignore */
+
         innerMessage[key].contextInfo = {
             ...(innerMessage[key].contextInfo || {}),
             expiration: options.ephemeralExpiration || WA_DEFAULT_EPHEMERAL
@@ -624,20 +611,19 @@ export const generateWAMessageFromContent = (jid, message, options) => {
         message: message,
         messageTimestamp: timestamp,
         messageStubParameters: [],
-        participant: isJidGroup(jid) || isJidStatusBroadcast(jid) ? userJid : undefined, // TODO: Add support for LIDs
+        participant: isJidGroup(jid) || isJidStatusBroadcast(jid) ? userJid : undefined,
         status: WAMessageStatus.PENDING
     };
     return WAProto.WebMessageInfo.fromObject(messageJSON);
 };
 
 export const generateWAMessage = async (jid, content, options) => {
-    // ensure msg ID is with every log
+
     options.logger = options?.logger?.child({ msgId: options.messageId });
-    // Pass jid in the options to generateWAMessageContent
+
     return generateWAMessageFromContent(jid, await generateWAMessageContent(content, { ...options, jid }), options);
 };
 
-/** Get the key to access the true type of content */
 export const getContentType = (content) => {
     if (content) {
         const keys = Object.keys(content);
@@ -646,17 +632,11 @@ export const getContentType = (content) => {
     }
 };
 
-/**
- * Normalizes ephemeral, view once messages to regular message content
- * Eg. image messages in ephemeral messages, in view once messages etc.
- * @param content
- * @returns
- */
 export const normalizeMessageContent = (content) => {
     if (!content) {
         return undefined;
     }
-    // set max iterations to prevent an infinite loop
+
     for (let i = 0; i < 5; i++) {
         const inner = getFutureProofMessage(content);
         if (!inner) {
@@ -680,10 +660,6 @@ export const normalizeMessageContent = (content) => {
     }
 };
 
-/**
- * Extract the true message content from a message
- * Eg. extracts the inner message from a disappearing message/view once message
- */
 export const extractMessageContent = (content) => {
     const extractFromTemplateMessage = (msg) => {
         if (msg.imageMessage) {
@@ -720,9 +696,6 @@ export const extractMessageContent = (content) => {
     return content;
 };
 
-/**
- * Returns the device predicted by message ID
- */
 export const getDevice = (id) => /^3A.{18}$/.test(id)
     ? 'ios'
     : /^3E.{20}$/.test(id)
@@ -733,7 +706,6 @@ export const getDevice = (id) => /^3A.{18}$/.test(id)
                 ? 'desktop'
                 : 'unknown';
 
-/** Upserts a receipt in the message */
 export const updateMessageWithReceipt = (msg, receipt) => {
     msg.userReceipt = msg.userReceipt || [];
     const recp = msg.userReceipt.find(m => m.userJid === receipt.userJid);
@@ -745,7 +717,6 @@ export const updateMessageWithReceipt = (msg, receipt) => {
     }
 };
 
-/** Update the message with a new reaction */
 export const updateMessageWithReaction = (msg, reaction) => {
     const authorID = getKeyAuthor(reaction.key);
     const reactions = (msg.reactions || []).filter(r => getKeyAuthor(r.key) !== authorID);
@@ -754,7 +725,6 @@ export const updateMessageWithReaction = (msg, reaction) => {
     msg.reactions = reactions;
 };
 
-/** Update the message with a new poll update */
 export const updateMessageWithPollUpdate = (msg, update) => {
     const authorID = getKeyAuthor(update.pollUpdateMessageKey);
     const reactions = (msg.pollUpdates || []).filter(r => getKeyAuthor(r.pollUpdateMessageKey) !== authorID);
@@ -764,7 +734,6 @@ export const updateMessageWithPollUpdate = (msg, update) => {
     msg.pollUpdates = reactions;
 };
 
-/** Update the message with a new event response */
 export const updateMessageWithEventResponse = (msg, update) => {
     const authorID = getKeyAuthor(update.eventResponseMessageKey);
     const responses = (msg.eventResponses || []).filter(r => getKeyAuthor(r.eventResponseMessageKey) !== authorID);
@@ -772,12 +741,6 @@ export const updateMessageWithEventResponse = (msg, update) => {
     msg.eventResponses = responses;
 };
 
-/**
- * Aggregates all poll updates in a poll.
- * @param msg the poll creation message
- * @param meId your jid
- * @returns A list of options & their voters
- */
 export function getAggregateVotesInPollMessage({ message, pollUpdates }, meId) {
     const opts = message?.pollCreationMessage?.options ||
         message?.pollCreationMessageV2?.options ||
@@ -812,12 +775,6 @@ export function getAggregateVotesInPollMessage({ message, pollUpdates }, meId) {
     return Object.values(voteHashMap);
 }
 
-/**
- * Aggregates all event responses in an event message.
- * @param msg the event creation message
- * @param meId your jid
- * @returns A list of response types & their responders
- */
 export function getAggregateResponsesInEventMessage({ eventResponses }, meId) {
     const responseTypes = ['GOING', 'NOT_GOING', 'MAYBE'];
     const responseMap = {};
@@ -836,7 +793,6 @@ export function getAggregateResponsesInEventMessage({ eventResponses }, meId) {
     return Object.values(responseMap);
 }
 
-/** Given a list of message keys, aggregates them by chat & sender. Useful for sending read receipts in bulk */
 export const aggregateMessageKeysNotFromMe = (keys) => {
     const keyMap = {};
     for (const { remoteJid, id, participant, fromMe } of keys) {
@@ -857,16 +813,13 @@ export const aggregateMessageKeysNotFromMe = (keys) => {
 
 const REUPLOAD_REQUIRED_STATUS = [410, 404];
 
-/**
- * Downloads the given message. Throws an error if it's not a media message
- */
 export const downloadMediaMessage = async (message, type, options, ctx) => {
     const result = await downloadMsg().catch(async (error) => {
         if (ctx &&
             typeof error?.status === 'number' &&
             REUPLOAD_REQUIRED_STATUS.includes(error.status)) {
             ctx.logger.info({ key: message.key }, 'sending reupload media request...');
-            // request reupload
+
             message = await ctx.reuploadRequest(message);
             const result = await downloadMsg();
             return result;
@@ -908,7 +861,6 @@ export const downloadMediaMessage = async (message, type, options, ctx) => {
     }
 };
 
-/** Checks whether the given message is a media message; if it is returns the inner content */
 export const assertMediaContent = (content) => {
     content = extractMessageContent(content);
     const mediaContent =

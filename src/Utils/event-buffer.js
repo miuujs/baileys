@@ -28,7 +28,6 @@ export const makeEventBuffer = (logger) => {
     let bufferCount = 0;
     const MAX_HISTORY_CACHE_SIZE = 10000;
     const BUFFER_TIMEOUT_MS = 30000;
-    // take the generic event and fire it as a baileys event
     ev.on('event', (map) => {
         for (const event in map) {
             ev.emit(event, map[event]);
@@ -58,7 +57,6 @@ export const makeEventBuffer = (logger) => {
         logger.debug({ bufferCount }, 'Flushing event buffer');
         isBuffering = false;
         bufferCount = 0;
-        // Clear timeout
         if (bufferTimeout) {
             clearTimeout(bufferTimeout);
             bufferTimeout = null;
@@ -67,7 +65,6 @@ export const makeEventBuffer = (logger) => {
             clearTimeout(flushPendingTimeout);
             flushPendingTimeout = null;
         }
-        // Clear history cache if it exceeds the max size
         if (historyCache.size > MAX_HISTORY_CACHE_SIZE) {
             logger.debug({ cacheSize: historyCache.size }, 'Clearing history cache');
             historyCache.clear();
@@ -101,8 +98,6 @@ export const makeEventBuffer = (logger) => {
             };
         },
         emit(event, evData) {
-            // Check if this is a messages.upsert with a different type than what's buffered
-            // If so, flush the buffered messages first to avoid type overshadowing
             if (event === 'messages.upsert') {
                 const { type } = evData;
                 const existingUpserts = Object.values(data.messageUpserts);
@@ -136,13 +131,12 @@ export const makeEventBuffer = (logger) => {
                 buffer();
                 try {
                     const result = await work(...args);
-                    // If this is the only buffer, flush after a small delay
                     if (bufferCount === 1) {
                         setTimeout(() => {
                             if (isBuffering && bufferCount === 1) {
                                 flush();
                             }
-                        }, 100); // Small delay to allow nested buffers
+                        }, 100);
                     }
                     return result;
                 }
@@ -152,7 +146,6 @@ export const makeEventBuffer = (logger) => {
                 finally {
                     bufferCount = Math.max(0, bufferCount - 1);
                     if (bufferCount === 0) {
-                        // Only schedule ONE timeout, not 10,000
                         if (!flushPendingTimeout) {
                             flushPendingTimeout = setTimeout(flush, 100);
                         }
@@ -164,7 +157,6 @@ export const makeEventBuffer = (logger) => {
         off: (...args) => ev.off(...args),
         removeAllListeners: (...args) => ev.removeAllListeners(...args),
         destroy() {
-            // Clear buffer timeout
             if (bufferTimeout) {
                 clearTimeout(bufferTimeout);
                 bufferTimeout = null;
@@ -173,13 +165,10 @@ export const makeEventBuffer = (logger) => {
                 clearTimeout(flushPendingTimeout);
                 flushPendingTimeout = null;
             }
-            // Clear history cache
             historyCache.clear();
-            // Reset buffer data
             data = makeBufferData();
             isBuffering = false;
             bufferCount = 0;
-            // Remove all listeners
             ev.removeAllListeners();
             logger.debug('Event buffer destroyed');
         }
@@ -306,22 +295,16 @@ eventData, logger) {
                 const conditionMatches = update.conditional ? update.conditional(data) : true;
                 if (conditionMatches) {
                     delete update.conditional;
-                    // if there is an existing upsert, merge the update into it
                     const upsert = data.historySets.chats[chatId] || data.chatUpserts[chatId];
                     if (upsert) {
                         concatChats(upsert, update);
                     } else {
-                        // merge the update into the existing update
                         const chatUpdate = data.chatUpdates[chatId] || {};
                         data.chatUpdates[chatId] = concatChats(chatUpdate, update);
                     }
                 } else if (conditionMatches === undefined) {
-                    // condition yet to be fulfilled
                     data.chatUpdates[chatId] = update;
                 }
-                // otherwise -- condition not met, update is invalid
-                // if the chat has been updated
-                // ignore any existing chat delete
                 if (data.chatDeletes.has(chatId)) {
                     data.chatDeletes.delete(chatId);
                 }
@@ -332,7 +315,6 @@ eventData, logger) {
                 if (!data.chatDeletes.has(chatId)) {
                     data.chatDeletes.add(chatId);
                 }
-                // remove any prior updates & upserts
                 if (data.chatUpdates[chatId]) {
                     delete data.chatUpdates[chatId];
                 }
@@ -417,9 +399,6 @@ eventData, logger) {
                 const existing = data.historySets.messages[keyStr] || data.messageUpserts[keyStr]?.message;
                 if (existing) {
                     Object.assign(existing, update);
-                    // if the message was received & read by us
-                    // the chat counter must have been incremented
-                    // so we need to decrement it
                     if (update.status === WAMessageStatus.READ && !key.fromMe) {
                         decrementChatReadCounterIfMsgDidUnread(existing);
                     }
@@ -449,7 +428,6 @@ eventData, logger) {
                 }
             }
             else {
-                // TODO: add support
             }
             break;
         case 'messages.reaction':
@@ -511,8 +489,6 @@ eventData, logger) {
         }
     }
     function decrementChatReadCounterIfMsgDidUnread(message) {
-        // decrement chat unread counter
-        // if the message has already been marked read by us
         const chatId = message.key.remoteJid;
         const chat = data.chatUpdates[chatId] || data.chatUpserts[chatId];
         if (isRealMessage(message) &&
@@ -594,7 +570,7 @@ function consolidateEvents(data) {
 }
 function concatChats(a, b) {
     if (
-        b.unreadCount === null && // neutralize unread counter
+        b.unreadCount === null &&
         a.unreadCount < 0
     ) {
         a.unreadCount = undefined;

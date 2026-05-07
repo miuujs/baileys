@@ -296,7 +296,6 @@ export const makeBusinessSocket = (config) => {
         return parseProductNode(productNode);
     };
     const productCreate = async (create) => {
-        // ensure isHidden is defined
         create.isHidden = !!create.isHidden;
         create = await uploadingNecessaryImagesOfProduct(create, waUploadToServer);
         const createNode = toProductNode(undefined, create);

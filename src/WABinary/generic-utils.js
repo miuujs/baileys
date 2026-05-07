@@ -2,15 +2,12 @@ import { Boom } from '@hapi/boom';
 import { proto } from '../../WAProto/index.js';
 import {} from './types.js';
 
-// some extra useful utilities
-
 const indexCache = new WeakMap();
 export const getBinaryNodeChildren = (node, childTag) => {
     if (!node || !Array.isArray(node.content))
         return [];
     let index = indexCache.get(node);
 
-    // Build the index once per node
     if (!index) {
         index = new Map();
         for (const child of node.content) {
@@ -22,7 +19,6 @@ export const getBinaryNodeChildren = (node, childTag) => {
         indexCache.set(node, index);
     }
 
-    // Return first matching child
     return index.get(childTag) || [];
 };
 export const getBinaryNodeChild = (node, childTag) => {

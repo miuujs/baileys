@@ -53,7 +53,6 @@ export const unpadRandomMax16 = (e) => {
     return new Uint8Array(t.buffer, t.byteOffset, t.length - r);
 };
 
-// code is inspired by whatsmeow
 export const generateParticipantHashV2 = (participants) => {
     participants.sort();
     const sha256Hash = sha256(Buffer.from(participants.join(''))).toString('base64');
@@ -78,7 +77,6 @@ export const encodeBigEndian = (e, t = 4) => {
 
 export const toNumber = (t) => typeof t === 'object' && t ? ('toNumber' in t ? t.toNumber() : t.low) : t || 0;
 
-/** unix timestamp of a date in seconds */
 export const unixTimestampSeconds = (date = new Date()) => Math.floor(date.getTime() / 1000);
 
 export const debouncedTimeout = (intervalMs = 1000, task) => {
@@ -126,7 +124,6 @@ export async function promiseTimeout(ms, promise) {
         return new Promise(promise);
     }
     const stack = new Error().stack;
-    // Create a promise that rejects in <ms> milliseconds
     const { delay, cancel } = delayCancellable(ms);
     const p = new Promise((resolve, reject) => {
         delay
@@ -144,8 +141,6 @@ export async function promiseTimeout(ms, promise) {
     return p;
 }
 
-// inspired from whatsmeow code
-// https://github.com/tulir/whatsmeow/blob/64bc969fbe78d31ae0dd443b8d4c80a5d026d07a/send.go#L42
 export const generateMessageIDV2 = (userId) => {
     const data = Buffer.alloc(8 + 20 + 16);
     data.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 1000)));
@@ -162,7 +157,6 @@ export const generateMessageIDV2 = (userId) => {
     return '3EB0' + hash.toString('hex').toUpperCase().substring(0, 18);
 };
 
-// generate a random ID to attach to a message
 export const generateMessageID = () => '3EB0' + randomBytes(18).toString('hex').toUpperCase();
 
 export function bindWaitForEvent(ev, event) {
@@ -193,7 +187,6 @@ export function bindWaitForEvent(ev, event) {
 
 export const bindWaitForConnectionUpdate = (ev) => bindWaitForEvent(ev, 'connection.update');
 
-/** utility that fetches latest baileys version from the master branch. Use to ensure your WA connection is always on the latest version */
 export const fetchLatestBaileysVersion = async (options = {}) => {
     const URL = 'https://raw.githubusercontent.com/WhiskeySockets/Baileys/master/src/Defaults/index.ts';
     try {
@@ -206,7 +199,6 @@ export const fetchLatestBaileysVersion = async (options = {}) => {
             throw new Boom(`Failed to fetch latest Baileys version: ${response.statusText}`, { statusCode: response.status });
         }
         const text = await response.text();
-        // Extract version from line 7 (const version = [...])
         const lines = text.split('\n');
         const versionLine = lines[6];
         const versionMatch = versionLine.match(/const version = \[(\d+),\s*(\d+),\s*(\d+)\]/);
@@ -230,10 +222,8 @@ export const fetchLatestBaileysVersion = async (options = {}) => {
     }
 };
 
-/** A utility that fetches the latest web version of whatsapp. Use to ensure your WA connection is always on the latest version */
 export const fetchLatestWaWebVersion = async (options = {}) => {
     try {
-        // Absolute minimal headers required to bypass anti-bot detection
         const defaultHeaders = {
             'sec-fetch-site': 'none',
             'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
@@ -274,7 +264,6 @@ export const fetchLatestWaWebVersion = async (options = {}) => {
     }
 };
 
-/** unique message tag prefix for MD clients */
 export const generateMdTagPrefix = () => {
     const bytes = randomBytes(4);
     return `${bytes.readUInt16BE()}.${bytes.readUInt16BE(2)}-`;
@@ -287,10 +276,6 @@ const STATUS_MAP = {
     'read-self': proto.WebMessageInfo.Status.READ
 };
 
-/**
- * Given a type of receipt, returns what the new status of the message should be
- * @param type type from receipt
- */
 export const getStatusFromReceiptType = (type) => {
     const status = STATUS_MAP[type];
     if (typeof type === 'undefined') {
@@ -303,10 +288,6 @@ const CODE_MAP = {
     conflict: DisconnectReason.connectionReplaced
 };
 
-/**
- * Stream errors generally provide a reason, map that to a baileys DisconnectReason
- * @param reason the string reason given, eg. "conflict"
- */
 export const getErrorCodeFromStreamError = (node) => {
     const [reasonNode] = getAllBinaryNodeChildren(node);
     let reason = reasonNode?.tag || 'unknown';
@@ -332,7 +313,6 @@ export const getCallStatusFromNode = ({ tag, attrs }) => {
                 status = 'timeout';
             }
             else {
-                //fired when accepted/rejected/timeout/caller hangs up
                 status = 'terminate';
             }
             break;
@@ -371,16 +351,11 @@ export const getCodeFromWSError = (error) => {
     else if (
         error?.code?.startsWith('E') ||
         error?.message?.includes('timed out')) {
-        // handle ETIMEOUT, ENOTFOUND etc
         statusCode = 408;
     }
     return statusCode;
 };
 
-/**
- * Is the given platform WA business
- * @param platform AuthenticationCreds.platform
- */
 export const isWABusinessPlatform = (platform) => {
     return platform === 'smbi' || platform === 'smba';
 };

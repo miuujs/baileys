@@ -69,7 +69,6 @@ export const getRawMediaUploadData = async (media, mediaType, logger) => {
     }
 };
 
-/** generates all the keys required to encrypt/decrypt & sign a media message */
 export async function getMediaKeys(buffer, mediaType) {
     if (!buffer) {
         throw new Boom('Cannot derive from empty media key');
@@ -77,7 +76,6 @@ export async function getMediaKeys(buffer, mediaType) {
     if (typeof buffer === 'string') {
         buffer = Buffer.from(buffer.replace('data:;base64,', ''), 'base64');
     }
-    // expand using HKDF to 112 bytes, also pass in the relevant app info
     const expandedMediaKey = hkdf(buffer, 112, { info: hkdfInfoKey(mediaType) });
     return {
         iv: expandedMediaKey.slice(0, 16),
@@ -86,7 +84,6 @@ export async function getMediaKeys(buffer, mediaType) {
     };
 }
 
-/** Extracts video thumb using FFMPEG */
 const extractVideoThumb = async (path, destPath, time, size) => new Promise((resolve, reject) => {
     const cmd = `ffmpeg -ss ${time} -i ${path} -y -vf scale=${size.width}:-1 -vframes 1 -f image2 ${destPath}`;
     exec(cmd, err => {
@@ -100,8 +97,6 @@ const extractVideoThumb = async (path, destPath, time, size) => new Promise((res
 });
 
 export const extractImageThumb = async (bufferOrFilePath, width = 32) => {
-    // TODO: Move entirely to sharp, removing jimp as it supports readable streams
-    // This will have positive speed and performance impacts as well as minimizing RAM usage.
     if (bufferOrFilePath instanceof Readable) {
         bufferOrFilePath = await toBuffer(bufferOrFilePath);
     }
@@ -147,9 +142,7 @@ export const generateProfilePicture = async (mediaUpload, dimensions) => {
         buffer = mediaUpload;
     }
     else {
-        // Use getStream to handle all WAMediaUpload types (Buffer, Stream, URL)
         const { stream } = await getStream(mediaUpload);
-        // Convert the resulting stream to a buffer
         buffer = await toBuffer(stream);
     }
     const lib = await getImageProcessingLibrary();
@@ -177,7 +170,6 @@ export const generateProfilePicture = async (mediaUpload, dimensions) => {
     };
 };
 
-/** gets the SHA256 of the given media message */
 export const mediaMessageSHA256B64 = (message) => {
     const media = Object.values(message)[0];
     return media?.fileSha256 && Buffer.from(media.fileSha256).toString('base64');
@@ -199,9 +191,6 @@ export async function getAudioDuration(buffer) {
     return metadata.format.duration;
 }
 
-/**
-  referenced from and modifying https://github.com/wppconnect-team/wa-js/blob/main/src/chat/functions/prepareAudioWaveform.ts
- */
 export async function getAudioWaveform(buffer, logger) {
     try {
         const { default: decoder } = await import('audio-decode');
@@ -217,22 +206,20 @@ export async function getAudioWaveform(buffer, logger) {
             audioData = await toBuffer(buffer);
         }
         const audioBuffer = await decoder(audioData);
-        const rawData = audioBuffer.getChannelData(0); // We only need to work with one channel of data
-        const samples = 64; // Number of samples we want to have in our final data set
-        const blockSize = Math.floor(rawData.length / samples); // the number of samples in each subdivision
+        const rawData = audioBuffer.getChannelData(0);
+        const samples = 64;
+        const blockSize = Math.floor(rawData.length / samples);
         const filteredData = [];
         for (let i = 0; i < samples; i++) {
-            const blockStart = blockSize * i; // the location of the first sample in the block
+            const blockStart = blockSize * i;
             let sum = 0;
             for (let j = 0; j < blockSize; j++) {
-                sum = sum + Math.abs(rawData[blockStart + j]); // find the sum of all the samples in the block
+                sum = sum + Math.abs(rawData[blockStart + j]);
             }
-            filteredData.push(sum / blockSize); // divide the sum by the block size to get the average
+            filteredData.push(sum / blockSize);
         }
-        // This guarantees that the largest data point will be set to 1, and the rest of the data will scale proportionally.
         const multiplier = Math.pow(Math.max(...filteredData), -1);
         const normalizedData = filteredData.map(n => n * multiplier);
-        // Generate waveform like WhatsApp
         const waveform = new Uint8Array(normalizedData.map(n => Math.floor(100 * n)));
         return waveform;
     }
@@ -275,7 +262,6 @@ export const getStream = async (item, opts) => {
     return { stream: createReadStream(item.url), type: 'file' };
 };
 
-/** generates a thumbnail for a given media, if required */
 export async function generateThumbnail(file, mediaType, options) {
     let thumbnail;
     let originalImageDimensions;
@@ -316,7 +302,6 @@ export const getHttpStream = async (url, options = {}) => {
     if (!response.ok) {
         throw new Boom(`Failed to fetch stream from ${url}`, { statusCode: response.status, data: { url } });
     }
-    // @ts-ignore Node18+ Readable.fromWeb exists
     return response.body instanceof Readable ? response.body : Readable.fromWeb(response.body);
 };
 
@@ -341,7 +326,6 @@ export const encryptedStream = async (media, mediaType, { logger, saveOriginalFi
     const onChunk = async (buff) => {
         sha256Enc.update(buff);
         hmac.update(buff);
-        // Handle backpressure: if write returns false, wait for drain
         if (!encFileWriteStream.write(buff)) {
             await once(encFileWriteStream, 'drain');
         }
@@ -377,8 +361,6 @@ export const encryptedStream = async (media, mediaType, { logger, saveOriginalFi
         encFileWriteStream.end();
         originalFileStream?.end?.();
         stream.destroy();
-        // Wait for write streams to fully flush to disk
-        // This helps reduce memory pressure by allowing OS to release buffers
         await encFinishPromise;
         await originalFinishPromise;
         logger?.debug('encrypted data successfully');
@@ -393,7 +375,6 @@ export const encryptedStream = async (media, mediaType, { logger, saveOriginalFi
         };
     }
     catch (error) {
-        // destroy all streams with error
         encFileWriteStream.destroy();
         originalFileStream?.destroy?.();
         aes.destroy();
@@ -436,8 +417,6 @@ const extractHost = (url) => {
 };
 
 export const downloadContentFromMessage = async ({ mediaKey, directPath, url }, type, opts = {}) => {
-    // Fallback host: explicit opt > host parsed from `url` > DEF_MEDIA_HOST.
-    // Lets us honor a non-default host carried by the proto without forcing callers to thread it through.
     const fallbackHost = opts.host ?? extractHost(url);
     const downloadUrl = directPath ? getUrlFromDirectPath(directPath, fallbackHost) : url;
     if (!downloadUrl) {
@@ -447,15 +426,10 @@ export const downloadContentFromMessage = async ({ mediaKey, directPath, url }, 
     return downloadEncryptedContent(downloadUrl, keys, opts);
 };
 
-/**
- * Decrypts and downloads an AES256-CBC encrypted file given the keys.
- * Assumes the SHA256 of the plaintext is appended to the end of the ciphertext
- * */
 export const downloadEncryptedContent = async (downloadUrl, { cipherKey, iv }, { startByte, endByte, options } = {}) => {
     let bytesFetched = 0;
     let startChunk = 0;
     let firstBlockIsIV = false;
-    // if a start byte is specified -- then we need to fetch the previous chunk as that will form the IV
     if (startByte) {
         const chunk = toSmallestChunkSize(startByte || 0);
         if (chunk) {
@@ -480,7 +454,6 @@ export const downloadEncryptedContent = async (downloadUrl, { cipherKey, iv }, {
             headers.Range += endChunk;
         }
     }
-    // download the message
     const fetched = await getHttpStream(downloadUrl, {
         ...(options || {}),
         headers
@@ -511,8 +484,6 @@ export const downloadEncryptedContent = async (downloadUrl, { cipherKey, iv }, {
                     data = data.slice(AES_CHUNK_SIZE);
                 }
                 aes = Crypto.createDecipheriv('aes-256-cbc', cipherKey, ivValue);
-                // if an end byte that is not EOF is specified
-                // stop auto padding (PKCS7) -- otherwise throws an error for decryption
                 if (endByte) {
                     aes.setAutoPadding(false);
                 }
@@ -567,7 +538,6 @@ export const uploadWithNodeHttp = async ({ url, filePath, headers, timeoutMs, ag
     }
     const parsedUrl = new URL(url);
     const httpModule = parsedUrl.protocol === 'https:' ? await import('https') : await import('http');
-    // Get file size for Content-Length header (required for Node.js streaming)
     const fileStats = await fs.stat(filePath);
     const fileSize = fileStats.size;
     return new Promise((resolve, reject) => {
@@ -583,9 +553,8 @@ export const uploadWithNodeHttp = async ({ url, filePath, headers, timeoutMs, ag
             agent,
             timeout: timeoutMs
         }, res => {
-            // Handle redirects (3xx)
             if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                res.resume(); // Consume response to free resources
+                res.resume();
                 const newUrl = new URL(res.headers.location, url).toString();
                 resolve(uploadWithNodeHttp({
                     url: newUrl,
@@ -622,7 +591,6 @@ export const uploadWithNodeHttp = async ({ url, filePath, headers, timeoutMs, ag
 };
 
 const uploadWithFetch = async ({ url, filePath, headers, timeoutMs, agent }) => {
-    // Convert Node.js Readable to Web ReadableStream
     const nodeStream = createReadStream(filePath);
     const webStream = Readable.toWeb(nodeStream);
     const response = await fetch(url, {
@@ -641,23 +609,6 @@ const uploadWithFetch = async ({ url, filePath, headers, timeoutMs, agent }) => 
     }
 };
 
-/**
- * Uploads media to WhatsApp servers.
- *
- * ## Why we have two upload implementations:
- *
- * Node.js's native `fetch` (powered by undici) has a known bug where it buffers
- * the entire request body in memory before sending, even when using streams.
- * This causes memory issues with large files (e.g., 1GB file = 1GB+ memory usage).
- * See: https://github.com/nodejs/undici/issues/4058
- *
- * Other runtimes (Bun, Deno, browsers) correctly stream the request body without
- * buffering, so we can use the web-standard Fetch API there.
- *
- * ## Future considerations:
- * Once the undici bug is fixed, we can simplify this to use only the Fetch API
- * across all runtimes. Monitor the GitHub issue for updates.
- */
 const uploadMedia = async (params, logger) => {
     if (isNodeRuntime()) {
         logger?.debug('Using Node.js https module for upload (avoids undici buffering bug)');
@@ -671,12 +622,10 @@ const uploadMedia = async (params, logger) => {
 
 export const getWAUploadToServer = ({ customUploadHosts, fetchAgent, logger, options }, refreshMediaConn) => {
     return async (filePath, { mediaType, fileEncSha256B64, timeoutMs }) => {
-        // send a query JSON to obtain the url & auth token to upload our media
         let uploadInfo = await refreshMediaConn(false);
         let urls;
         const hosts = [...customUploadHosts, ...uploadInfo.hosts];
         fileEncSha256B64 = encodeBase64EncodedStringForUpload(fileEncSha256B64);
-        // Prepare common headers
         const customHeaders = (() => {
             const hdrs = options?.headers;
             if (!hdrs)
@@ -732,9 +681,6 @@ const getMediaRetryKey = (mediaKey) => {
     return hkdf(mediaKey, 32, { info: 'WhatsApp Media Retry Notification' });
 };
 
-/**
- * Generate a binary node that will request the phone to re-upload the media & return the newly uploaded URL
- */
 export const encryptMediaRetryRequest = (key, mediaKey, meId) => {
     const recp = { stanzaId: key.id };
     const recpBuffer = proto.ServerErrorReceipt.encode(recp).finish();
@@ -749,9 +695,6 @@ export const encryptMediaRetryRequest = (key, mediaKey, meId) => {
             type: 'server-error'
         },
         content: [
-            // this encrypt node is actually pretty useless
-            // the media is returned even without this node
-            // keeping it here to maintain parity with WA Web
             {
                 tag: 'encrypt',
                 attrs: {},
