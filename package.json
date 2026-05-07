@@ -2,7 +2,7 @@
   "name": "baileys",
   "type": "module",
   "version": "1.0.0",
-  "description": "WhatsApp Web API Library - Advanced Pure JavaScript Implementation",
+  "description": "WhatsApp Web API Library",
   "author": "reiwabyte",
   "main": "src/index.js",
   "files": [
