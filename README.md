@@ -9,6 +9,16 @@
 <details>
 <summary><strong>Interactive Messages (Buttons, List, Template, Carousel, Shop)</strong></summary>
 
+| Fitur | Keterangan |
+|-------|------------|
+| Native Flow Buttons | Tombol interaktif native (reply, url, copy, call, reminder, catalog) |
+| Native Flow Buttons + Image/Video | Tombol dengan media header |
+| List Message | Daftar pilihan dengan section dan row |
+| Legacy Buttons Message | Tombol gaya lama (ButtonsMessage) |
+| Template Message | Template 4 baris dengan tombol URL/Call/QR |
+| Carousel Message | Kartu horizontal yang bisa digeser |
+| Collection Message (Shop) | Katalog/toko |
+
 All interactive message types are fully defined in WAProto. Since `sendMessage` does not have high-level helpers for these, use `generateWAMessageFromContent` or `relayMessage` directly.
 
 ### Native Flow Buttons
@@ -350,6 +360,22 @@ await sock.relayMessage(jid, { interactiveMessage: collection }, {});
 
 <details>
 <summary><strong>Meta AI Rich Response (AIRichResponseMessage)</strong></summary>
+
+| Fitur | Keterangan |
+|-------|------------|
+| Receiving Rich Response | Handler untuk menangkap `richResponseMessage` |
+| Grid Image | Gambar grid dari Meta AI |
+| Inline Image | Gambar dengan alignment teks |
+| Code Block | Blok kode dengan syntax highlighting |
+| Table | Tabel data |
+| Map | Peta dengan anotasi |
+| Dynamic Content | GIF/animasi |
+| LaTeX Expression | Rumus matematika |
+| Content Items (Carousel/Reels) | Konten video carousel |
+| Source Citations | Kutipan sumber (Bing/Google/dll) |
+| Bot Metadata | Field metadata bot (responseId, persona, dll) |
+| Question Response | Jawaban pertanyaan status |
+| Event Response (RSVP) | Respon acara (Going/Not Going/Maybe) |
 
 Meta AI sends rich responses as field `richResponseMessage` (field 97) in the `Message` container. Each rich response contains one or more `submessages` of different types.
 
