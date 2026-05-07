@@ -205,6 +205,171 @@ export const makeMessagesSocket = (config) => {
         return didFetchNewSession;
     };
 
+    const getUSyncDevices = async (jids, useCache, ignoreZeroDevices) => {
+        const deviceResults = [];
+
+        if (!useCache) {
+            logger.debug('not using cache for devices');
+        }
+
+        const toFetch = [];
+
+        const jidsWithUser = jids
+            .map(jid => {
+                const decoded = jidDecode(jid);
+                const user = decoded?.user;
+                const device = decoded?.device;
+                const isExplicitDevice = typeof device === 'number' && device >= 0;
+
+                if (isExplicitDevice && user) {
+                    deviceResults.push({
+                        user,
+                        device,
+                        jid
+                    });
+                    return null;
+                }
+
+                jid = jidNormalizedUser(jid);
+                return { jid, user };
+            })
+            .filter(jid => jid !== null);
+
+        let mgetDevices;
+
+        if (useCache && userDevicesCache.mget) {
+            const usersToFetch = jidsWithUser.map(j => j?.user).filter(Boolean);
+            mgetDevices = await userDevicesCache.mget(usersToFetch);
+        }
+
+        for (const { jid, user } of jidsWithUser) {
+            if (useCache) {
+                const devices =
+                    mgetDevices?.[user] ||
+                    (userDevicesCache.mget ? undefined : (await userDevicesCache.get(user)));
+                if (devices) {
+                    const devicesWithJid = devices.map(d => ({
+                        ...d,
+                        jid: jidEncode(d.user, d.server, d.device)
+                    }));
+                    deviceResults.push(...devicesWithJid);
+
+                    logger.trace({ user }, 'using cache for devices');
+                } else {
+                    toFetch.push(jid);
+                }
+            } else {
+                toFetch.push(jid);
+            }
+        }
+
+        if (!toFetch.length) {
+            return deviceResults;
+        }
+
+        const requestedLidUsers = new Set();
+        for (const jid of toFetch) {
+            if (isLidUser(jid) || isHostedLidUser(jid)) {
+                const user = jidDecode(jid)?.user;
+                if (user) requestedLidUsers.add(user);
+            }
+        }
+
+        const query = new USyncQuery().withContext('message').withDeviceProtocol().withLIDProtocol();
+
+        for (const jid of toFetch) {
+            query.withUser(new USyncUser().withId(jid));
+        }
+
+        const result = await sock.executeUSyncQuery(query);
+
+        if (result) {
+            const lidResults = result.list.filter(a => !!a.lid);
+            if (lidResults.length > 0) {
+                logger.trace('Storing LID maps from device call');
+                await signalRepository.lidMapping.storeLIDPNMappings(lidResults.map(a => ({ lid: a.lid, pn: a.id })));
+
+                try {
+                    const lids = lidResults.map(a => a.lid);
+                    if (lids.length) {
+                        await assertSessions(lids, true);
+                    }
+                } catch (e) {
+                    logger.warn({ e, count: lidResults.length }, 'failed to assert sessions for newly mapped LIDs');
+                }
+            }
+
+            const extracted = extractDeviceJids(
+                result?.list,
+                authState.creds.me.id,
+                authState.creds.me.lid,
+                ignoreZeroDevices
+            );
+            const deviceMap = {};
+
+            for (const item of extracted) {
+                deviceMap[item.user] = deviceMap[item.user] || [];
+                deviceMap[item.user]?.push(item);
+            }
+
+            for (const [user, userDevices] of Object.entries(deviceMap)) {
+                const isLidUser = requestedLidUsers.has(user);
+
+                for (const item of userDevices) {
+                    const finalJid = isLidUser
+                        ? jidEncode(user, item.server, item.device)
+                        : jidEncode(item.user, item.server, item.device);
+
+                    deviceResults.push({
+                        ...item,
+                        jid: finalJid
+                    });
+
+                    logger.debug(
+                        {
+                            user: item.user,
+                            device: item.device,
+                            finalJid,
+                            usedLid: isLidUser
+                        },
+                        'Processed device with LID priority'
+                    );
+                }
+            }
+
+            await devicesMutex.mutex(async () => {
+                if (userDevicesCache.mset) {
+                    await userDevicesCache.mset(Object.entries(deviceMap).map(([key, value]) => ({ key, value })));
+                } else {
+                    for (const key in deviceMap) {
+                        if (deviceMap[key]) await userDevicesCache.set(key, deviceMap[key]);
+                    }
+                }
+            });
+
+            const userDeviceUpdates = {};
+            for (const [userId, devices] of Object.entries(deviceMap)) {
+                if (devices && devices.length > 0) {
+                    userDeviceUpdates[userId] = devices.map(d => d.device?.toString() || '0');
+                }
+            }
+
+            if (Object.keys(userDeviceUpdates).length > 0) {
+                try {
+                    await authState.keys.set({ 'device-list': userDeviceUpdates });
+                    logger.debug(
+                        { userCount: Object.keys(userDeviceUpdates).length },
+                        'stored user device lists for bulk migration'
+                    );
+                } catch (error) {
+                    logger.warn({ error }, 'failed to store user device lists');
+                }
+            }
+        }
+
+        return deviceResults;
+    };
+
     const sendPeerDataOperationMessage = async (pdoMessage) => {
         if (!authState.creds.me?.id) {
             throw new Boom('Not authenticated');

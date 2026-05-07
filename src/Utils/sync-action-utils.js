@@ -1,5 +1,6 @@
 import { proto } from '../../WAProto/index.js';
 import { isLidUser, isPnUser } from '../WABinary/index.js';
+
 export const processContactAction = (action, id, logger) => {
     const results = [];
     if (!id) {
@@ -29,12 +30,12 @@ export const processContactAction = (action, id, logger) => {
     }
     return results;
 };
+
 export const emitSyncActionResults = (ev, results) => {
     for (const result of results) {
         if (result.event === 'contacts.upsert') {
             ev.emit('contacts.upsert', result.data);
-        }
-        else {
+        } else {
             ev.emit('lid-mapping.update', result.data);
         }
     }

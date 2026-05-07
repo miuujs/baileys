@@ -1,6 +1,7 @@
 import NodeCache from '@cacheable/node-cache';
 import { areJidsSameUser, getBinaryNodeChild, jidDecode } from '../WABinary/index.js';
 import { isStringNullOrEmpty } from './generics.js';
+
 export async function handleIdentityChange(node, ctx) {
     const from = node.attrs.from;
     if (!from) {
@@ -41,8 +42,7 @@ export async function handleIdentityChange(node, ctx) {
     try {
         await ctx.assertSessions([from], true);
         return { action: 'session_refreshed' };
-    }
-    catch (error) {
+    } catch (error) {
         ctx.logger.warn({ error, jid: from }, 'failed to assert sessions after identity change');
         return { action: 'session_refresh_failed', error };
     }

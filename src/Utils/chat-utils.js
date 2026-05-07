@@ -8,6 +8,7 @@ import { toNumber } from './generics.js';
 import { LT_HASH_ANTI_TAMPERING } from './lt-hash.js';
 import { downloadContentFromMessage } from './messages-media.js';
 import { emitSyncActionResults, processContactAction } from './sync-action-utils.js';
+
 const mutationKeys = (keydata) => {
     const keys = expandAppStateKeys(keydata);
     return {
@@ -18,6 +19,7 @@ const mutationKeys = (keydata) => {
         patchMacKey: keys.patchMacKey
     };
 };
+
 const generateMac = (operation, data, keyId, key) => {
     const opByte = operation === proto.SyncdMutation.SyncdOperation.SET ? 0x01 : 0x02;
     const keyIdBuffer = typeof keyId === 'string' ? Buffer.from(keyId, 'base64') : keyId;
@@ -33,11 +35,13 @@ const generateMac = (operation, data, keyId, key) => {
     const hmac = hmacSign(total, key, 'sha512');
     return hmac.subarray(0, 32);
 };
+
 const to64BitNetworkOrder = (e) => {
     const buff = Buffer.alloc(8);
     buff.writeUint32BE(e, 4);
     return buff;
 };
+
 export const makeLtHashGenerator = ({ indexValueMap, hash }) => {
     indexValueMap = { ...indexValueMap };
     const addBuffs = [];
@@ -69,28 +73,36 @@ export const makeLtHashGenerator = ({ indexValueMap, hash }) => {
         }
     };
 };
+
 const generateSnapshotMac = (lthash, version, name, key) => {
     const total = Buffer.concat([lthash, to64BitNetworkOrder(version), Buffer.from(name, 'utf-8')]);
     return hmacSign(total, key, 'sha256');
 };
+
 const generatePatchMac = (snapshotMac, valueMacs, version, type, key) => {
     const total = Buffer.concat([snapshotMac, ...valueMacs, to64BitNetworkOrder(version), Buffer.from(type, 'utf-8')]);
     return hmacSign(total, key);
 };
+
 export const newLTHashState = () => ({ version: 0, hash: Buffer.alloc(128), indexValueMap: {} });
+
 export const ensureLTHashStateVersion = (state) => {
     if (typeof state.version !== 'number' || isNaN(state.version)) {
         state.version = 0;
     }
     return state;
 };
+
 export const MAX_SYNC_ATTEMPTS = 2;
+
 export const isMissingKeyError = (error) => {
     return error?.data?.isMissingKey === true;
 };
+
 export const isAppStateSyncIrrecoverable = (error, attempts) => {
     return attempts >= MAX_SYNC_ATTEMPTS || error?.name === 'TypeError';
 };
+
 export const encodeSyncdPatch = async ({ type, index, syncAction, apiVersion, operation }, myAppStateKeyId, state, getAppStateSyncKey) => {
     const key = !!myAppStateKeyId ? await getAppStateSyncKey(myAppStateKeyId) : undefined;
     if (!key) {
@@ -138,6 +150,7 @@ export const encodeSyncdPatch = async ({ type, index, syncAction, apiVersion, op
     state.indexValueMap[base64Index] = { valueMac };
     return { patch, state };
 };
+
 export const decodeSyncdMutations = async (msgMutations, initialState, getAppStateSyncKey, onMutation, validateMacs) => {
     const ltGenerator = makeLtHashGenerator(initialState);
     const derivedKeyCache = new Map();
@@ -202,6 +215,7 @@ export const decodeSyncdMutations = async (msgMutations, initialState, getAppSta
         return keys;
     }
 };
+
 export const decodeSyncdPatch = async (msg, name, initialState, getAppStateSyncKey, onMutation, validateMacs) => {
     if (validateMacs) {
         const base64Key = Buffer.from(msg.keyId.id).toString('base64');
@@ -219,6 +233,7 @@ export const decodeSyncdPatch = async (msg, name, initialState, getAppStateSyncK
     const result = await decodeSyncdMutations(msg.mutations, initialState, getAppStateSyncKey, onMutation, validateMacs);
     return result;
 };
+
 export const extractSyncdPatches = async (result, options) => {
     const syncNode = getBinaryNodeChild(result, 'sync');
     const collectionNodes = getBinaryNodeChildren(syncNode, 'collection');
@@ -255,6 +270,7 @@ export const extractSyncdPatches = async (result, options) => {
     }));
     return final;
 };
+
 export const downloadExternalBlob = async (blob, options) => {
     const stream = await downloadContentFromMessage(blob, 'md-app-state', { options });
     const bufferArray = [];
@@ -263,11 +279,13 @@ export const downloadExternalBlob = async (blob, options) => {
     }
     return Buffer.concat(bufferArray);
 };
+
 export const downloadExternalPatch = async (blob, options) => {
     const buffer = await downloadExternalBlob(blob, options);
     const syncData = proto.SyncdMutations.decode(buffer);
     return syncData;
 };
+
 export const decodeSyncdSnapshot = async (name, snapshot, getAppStateSyncKey, minimumVersionNumber, validateMacs = true, logger) => {
     const newState = newLTHashState();
     newState.version = toNumber(snapshot.version.version);
@@ -298,6 +316,7 @@ export const decodeSyncdSnapshot = async (name, snapshot, getAppStateSyncKey, mi
         mutationMap
     };
 };
+
 export const decodePatches = async (name, syncds, initial, getAppStateSyncKey, options, minimumVersionNumber, logger, validateMacs = true) => {
     const newState = {
         ...initial,
@@ -349,6 +368,7 @@ export const decodePatches = async (name, syncds, initial, getAppStateSyncKey, o
     }
     return { state: newState, mutationMap };
 };
+
 export const chatModificationToAppPatch = (mod, jid) => {
     const OP = proto.SyncdMutation.SyncdOperation;
     const getMessageRange = (lastMessages) => {
@@ -446,7 +466,379 @@ export const chatModificationToAppPatch = (mod, jid) => {
                     messageRange: getMessageRange(mod.lastMessages)
                 }
             },
-
+            index: ['clearChat', jid, '1', '0'],
+            type: 'regular_high',
+            apiVersion: 6,
+            operation: OP.SET
         };
+    }
+    else if ('pin' in mod) {
+        patch = {
+            syncAction: {
+                pinAction: {
+                    pinned: !!mod.pin
+                }
+            },
+            index: ['pin_v1', jid],
+            type: 'regular_low',
+            apiVersion: 5,
+            operation: OP.SET
+        };
+    }
+    else if ('contact' in mod) {
+        patch = {
+            syncAction: {
+                contactAction: mod.contact || {}
+            },
+            index: ['contact', jid],
+            type: 'critical_unblock_low',
+            apiVersion: 2,
+            operation: mod.contact ? OP.SET : OP.REMOVE
+        };
+    }
+    else if ('disableLinkPreviews' in mod) {
+        patch = {
+            syncAction: {
+                privacySettingDisableLinkPreviewsAction: mod.disableLinkPreviews || {}
+            },
+            index: ['setting_disableLinkPreviews'],
+            type: 'regular',
+            apiVersion: 8,
+            operation: OP.SET
+        };
+    }
+    else if ('star' in mod) {
+        const key = mod.star.messages[0];
+        patch = {
+            syncAction: {
+                starAction: {
+                    starred: !!mod.star.star
+                }
+            },
+            index: ['star', jid, key.id, key.fromMe ? '1' : '0', '0'],
+            type: 'regular_low',
+            apiVersion: 2,
+            operation: OP.SET
+        };
+    }
+    else if ('delete' in mod) {
+        patch = {
+            syncAction: {
+                deleteChatAction: {
+                    messageRange: getMessageRange(mod.lastMessages)
+                }
+            },
+            index: ['deleteChat', jid, '1'],
+            type: 'regular_high',
+            apiVersion: 6,
+            operation: OP.SET
+        };
+    }
+    else if ('pushNameSetting' in mod) {
+        patch = {
+            syncAction: {
+                pushNameSetting: {
+                    name: mod.pushNameSetting
+                }
+            },
+            index: ['setting_pushName'],
+            type: 'critical_block',
+            apiVersion: 1,
+            operation: OP.SET
+        };
+    }
+    else if ('quickReply' in mod) {
+        patch = {
+            syncAction: {
+                quickReplyAction: {
+                    count: 0,
+                    deleted: mod.quickReply.deleted || false,
+                    keywords: [],
+                    message: mod.quickReply.message || '',
+                    shortcut: mod.quickReply.shortcut || ''
+                }
+            },
+            index: ['quick_reply', mod.quickReply.timestamp || String(Math.floor(Date.now() / 1000))],
+            type: 'regular',
+            apiVersion: 2,
+            operation: OP.SET
+        };
+    }
+    else if ('addLabel' in mod) {
+        patch = {
+            syncAction: {
+                labelEditAction: {
+                    name: mod.addLabel.name,
+                    color: mod.addLabel.color,
+                    predefinedId: mod.addLabel.predefinedId,
+                    deleted: mod.addLabel.deleted
+                }
+            },
+            index: ['label_edit', mod.addLabel.id],
+            type: 'regular',
+            apiVersion: 3,
+            operation: OP.SET
+        };
+    }
+    else if ('addChatLabel' in mod) {
+        patch = {
+            syncAction: {
+                labelAssociationAction: {
+                    labeled: true
+                }
+            },
+            index: [LabelAssociationType.Chat, mod.addChatLabel.labelId, jid],
+            type: 'regular',
+            apiVersion: 3,
+            operation: OP.SET
+        };
+    }
+    else if ('removeChatLabel' in mod) {
+        patch = {
+            syncAction: {
+                labelAssociationAction: {
+                    labeled: false
+                }
+            },
+            index: [LabelAssociationType.Chat, mod.removeChatLabel.labelId, jid],
+            type: 'regular',
+            apiVersion: 3,
+            operation: OP.SET
+        };
+    }
+    else if ('addMessageLabel' in mod) {
+        patch = {
+            syncAction: {
+                labelAssociationAction: {
+                    labeled: true
+                }
+            },
+            index: [LabelAssociationType.Message, mod.addMessageLabel.labelId, jid, mod.addMessageLabel.messageId, '0', '0'],
+            type: 'regular',
+            apiVersion: 3,
+            operation: OP.SET
+        };
+    }
+    else if ('removeMessageLabel' in mod) {
+        patch = {
+            syncAction: {
+                labelAssociationAction: {
+                    labeled: false
+                }
+            },
+            index: [
+                LabelAssociationType.Message,
+                mod.removeMessageLabel.labelId,
+                jid,
+                mod.removeMessageLabel.messageId,
+                '0',
+                '0'
+            ],
+            type: 'regular',
+            apiVersion: 3,
+            operation: OP.SET
+        };
+    }
+    else {
+        throw new Boom('not supported');
+    }
+    patch.syncAction.timestamp = Date.now();
+    return patch;
+};
+
+export const processSyncAction = (syncAction, ev, me, initialSyncOpts, logger) => {
+    const isInitialSync = !!initialSyncOpts;
+    const accountSettings = initialSyncOpts?.accountSettings;
+    logger?.trace({ syncAction, initialSync: !!initialSyncOpts }, 'processing sync action');
+    const {
+        syncAction: { value: action },
+        index: [type, id, msgId, fromMe]
+    } = syncAction;
+    if (action?.muteAction) {
+        ev.emit('chats.update', [
+            {
+                id,
+                muteEndTime: action.muteAction?.muted ? toNumber(action.muteAction.muteEndTimestamp) : null,
+                conditional: getChatUpdateConditional(id, undefined)
+            }
+        ]);
+    }
+    else if (action?.archiveChatAction || type === 'archive' || type === 'unarchive') {
+        const archiveAction = action?.archiveChatAction;
+        const isArchived = archiveAction ? archiveAction.archived : type === 'archive';
+        const msgRange = !accountSettings?.unarchiveChats ? undefined : archiveAction?.messageRange;
+        ev.emit('chats.update', [
+            {
+                id,
+                archived: isArchived,
+                conditional: getChatUpdateConditional(id, msgRange)
+            }
+        ]);
+    }
+    else if (action?.markChatAsReadAction) {
+        const markReadAction = action.markChatAsReadAction;
+        const isNullUpdate = isInitialSync && markReadAction.read;
+        ev.emit('chats.update', [
+            {
+                id,
+                unreadCount: isNullUpdate ? null : !!markReadAction?.read ? 0 : -1,
+                conditional: getChatUpdateConditional(id, markReadAction?.messageRange)
+            }
+        ]);
+    }
+    else if (action?.deleteMessageForMeAction || type === 'deleteMessageForMe') {
+        ev.emit('messages.delete', {
+            keys: [
+                {
+                    remoteJid: id,
+                    id: msgId,
+                    fromMe: fromMe === '1'
+                }
+            ]
+        });
+    }
+    else if (action?.contactAction) {
+        const results = processContactAction(action.contactAction, id, logger);
+        emitSyncActionResults(ev, results);
+    }
+    else if (action?.pushNameSetting) {
+        const name = action?.pushNameSetting?.name;
+        if (name && me?.name !== name) {
+            ev.emit('creds.update', { me: { ...me, name } });
+        }
+    }
+    else if (action?.pinAction) {
+        ev.emit('chats.update', [
+            {
+                id,
+                pinned: action.pinAction?.pinned ? toNumber(action.timestamp) : null,
+                conditional: getChatUpdateConditional(id, undefined)
+            }
+        ]);
+    }
+    else if (action?.unarchiveChatsSetting) {
+        const unarchiveChats = !!action.unarchiveChatsSetting.unarchiveChats;
+        ev.emit('creds.update', { accountSettings: { unarchiveChats } });
+        logger?.info(`archive setting updated => '${action.unarchiveChatsSetting.unarchiveChats}'`);
+        if (accountSettings) {
+            accountSettings.unarchiveChats = unarchiveChats;
+        }
+    }
+    else if (action?.starAction || type === 'star') {
+        let starred = action?.starAction?.starred;
+        if (typeof starred !== 'boolean') {
+            starred = syncAction.index[syncAction.index.length - 1] === '1';
+        }
+        ev.emit('messages.update', [
+            {
+                key: { remoteJid: id, id: msgId, fromMe: fromMe === '1' },
+                update: { starred }
+            }
+        ]);
+    }
+    else if (action?.deleteChatAction || type === 'deleteChat') {
+        if (!isInitialSync) {
+            ev.emit('chats.delete', [id]);
+        }
+    }
+    else if (action?.labelEditAction) {
+        const { name, color, deleted, predefinedId } = action.labelEditAction;
+        ev.emit('labels.edit', {
+            id: id,
+            name: name,
+            color: color,
+            deleted: deleted,
+            predefinedId: predefinedId ? String(predefinedId) : undefined
+        });
+    }
+    else if (action?.labelAssociationAction) {
+        ev.emit('labels.association', {
+            type: action.labelAssociationAction.labeled ? 'add' : 'remove',
+            association: type === LabelAssociationType.Chat
+                ? {
+                    type: LabelAssociationType.Chat,
+                    chatId: syncAction.index[2],
+                    labelId: syncAction.index[1]
+                }
+                : {
+                    type: LabelAssociationType.Message,
+                    chatId: syncAction.index[2],
+                    messageId: syncAction.index[3],
+                    labelId: syncAction.index[1]
+                }
+        });
+    }
+    else if (action?.localeSetting?.locale) {
+        ev.emit('settings.update', { setting: 'locale', value: action.localeSetting.locale });
+    }
+    else if (action?.timeFormatAction) {
+        ev.emit('settings.update', { setting: 'timeFormat', value: action.timeFormatAction });
+    }
+    else if (action?.pnForLidChatAction) {
+        if (action.pnForLidChatAction.pnJid) {
+            ev.emit('lid-mapping.update', { lid: id, pn: action.pnForLidChatAction.pnJid });
+        }
+    }
+    else if (action?.privacySettingRelayAllCalls) {
+        ev.emit('settings.update', {
+            setting: 'privacySettingRelayAllCalls',
+            value: action.privacySettingRelayAllCalls
+        });
+    }
+    else if (action?.statusPrivacy) {
+        ev.emit('settings.update', { setting: 'statusPrivacy', value: action.statusPrivacy });
+    }
+    else if (action?.lockChatAction) {
+        ev.emit('chats.lock', { id: id, locked: !!action.lockChatAction.locked });
+    }
+    else if (action?.privacySettingDisableLinkPreviewsAction) {
+        ev.emit('settings.update', {
+            setting: 'disableLinkPreviews',
+            value: action.privacySettingDisableLinkPreviewsAction
+        });
+    }
+    else if (action?.notificationActivitySettingAction?.notificationActivitySetting) {
+        ev.emit('settings.update', {
+            setting: 'notificationActivitySetting',
+            value: action.notificationActivitySettingAction.notificationActivitySetting
+        });
+    }
+    else if (action?.lidContactAction) {
+        ev.emit('contacts.upsert', [
+            {
+                id: id,
+                name: action.lidContactAction.fullName ||
+                    action.lidContactAction.firstName ||
+                    action.lidContactAction.username ||
+                    undefined,
+                username: action.lidContactAction.username || undefined,
+                lid: id,
+                phoneNumber: undefined
+            }
+        ]);
+    }
+    else if (action?.privacySettingChannelsPersonalisedRecommendationAction) {
+        ev.emit('settings.update', {
+            setting: 'channelsPersonalisedRecommendation',
+            value: action.privacySettingChannelsPersonalisedRecommendationAction
+        });
+    }
+    else {
+        logger?.debug({ syncAction, id }, 'unprocessable update');
+    }
+    function getChatUpdateConditional(id, msgRange) {
+        return isInitialSync
+            ? data => {
+                const chat = data.historySets.chats[id] || data.chatUpserts[id];
+                if (chat) {
+                    return msgRange ? isValidPatchBasedOnMessageRange(chat, msgRange) : true;
+                }
+            }
+            : undefined;
+    }
+    function isValidPatchBasedOnMessageRange(chat, msgRange) {
+        const lastMsgTimestamp = Number(msgRange?.lastMessageTimestamp || msgRange?.lastSystemMessageTimestamp || 0);
+        const chatLastMsgTimestamp = Number(chat?.lastMessageRecvTimestamp || 0);
+        return lastMsgTimestamp >= chatLastMsgTimestamp;
     }
 };

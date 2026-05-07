@@ -7,13 +7,16 @@ import { aesDecryptGCM, hmacSign } from './crypto.js';
 import { getKeyAuthor, toNumber } from './generics.js';
 import { downloadAndProcessHistorySyncNotification } from './history.js';
 import { buildMergedTcTokenIndexWrite, resolveTcTokenJid } from './tc-token-utils.js';
+
 const REAL_MSG_STUB_TYPES = new Set([
     WAMessageStubType.CALL_MISSED_GROUP_VIDEO,
     WAMessageStubType.CALL_MISSED_GROUP_VOICE,
     WAMessageStubType.CALL_MISSED_VIDEO,
     WAMessageStubType.CALL_MISSED_VOICE
 ]);
+
 const REAL_MSG_REQ_ME_STUB_TYPES = new Set([WAMessageStubType.GROUP_PARTICIPANT_ADD]);
+
 async function storeTcTokensFromHistorySync(chats, signalRepository, keyStore, logger) {
     const getLIDForPN = signalRepository.lidMapping.getLIDForPN.bind(signalRepository.lidMapping);
     const candidates = [];
@@ -60,6 +63,59 @@ async function storeTcTokensFromHistorySync(chats, signalRepository, keyStore, l
         }
     }
 }
+
+export const cleanMessage = (message, meId, meLid) => {
+    if (isHostedPnUser(message.key.remoteJid) || isHostedLidUser(message.key.remoteJid)) {
+        message.key.remoteJid = jidEncode(
+            jidDecode(message.key?.remoteJid)?.user,
+            isHostedPnUser(message.key.remoteJid) ? 's.whatsapp.net' : 'lid'
+        );
+    } else {
+        message.key.remoteJid = jidNormalizedUser(message.key.remoteJid);
+    }
+    if (isHostedPnUser(message.key.participant) || isHostedLidUser(message.key.participant)) {
+        message.key.participant = jidEncode(
+            jidDecode(message.key.participant)?.user,
+            isHostedPnUser(message.key.participant) ? 's.whatsapp.net' : 'lid'
+        );
+    } else {
+        message.key.participant = jidNormalizedUser(message.key.participant);
+    }
+    const content = normalizeMessageContent(message.message);
+    if (content?.reactionMessage) {
+        normaliseKey(content.reactionMessage.key);
+    }
+    if (content?.pollUpdateMessage) {
+        normaliseKey(content.pollUpdateMessage.pollCreationMessageKey);
+    }
+    function normaliseKey(msgKey) {
+        if (!message.key.fromMe) {
+            msgKey.fromMe = !msgKey.fromMe
+                ? areJidsSameUser(msgKey.participant || msgKey.remoteJid, meId) ||
+                    areJidsSameUser(msgKey.participant || msgKey.remoteJid, meLid)
+                : false;
+            msgKey.remoteJid = message.key.remoteJid;
+            msgKey.participant = msgKey.participant || message.key.participant;
+        }
+    }
+};
+
+export const isRealMessage = (message) => {
+    const normalizedContent = normalizeMessageContent(message.message);
+    const hasSomeContent = !!getContentType(normalizedContent);
+    return (
+        (!!normalizedContent ||
+            REAL_MSG_STUB_TYPES.has(message.messageStubType) ||
+            REAL_MSG_REQ_ME_STUB_TYPES.has(message.messageStubType)) &&
+        hasSomeContent &&
+        !normalizedContent?.protocolMessage &&
+        !normalizedContent?.reactionMessage &&
+        !normalizedContent?.pollUpdateMessage
+    );
+};
+
+export const shouldIncrementChatUnread = (message) => !message.key.fromMe && !message.messageStubType;
+
 export const getChatId = ({ remoteJid, participant, fromMe }) => {
     if (!remoteJid) {
         throw new Boom('Cannot derive chat id: message key is missing remoteJid', {
@@ -76,6 +132,7 @@ export const getChatId = ({ remoteJid, participant, fromMe }) => {
     }
     return remoteJid;
 };
+
 export function decryptPollVote({ encPayload, encIv }, { pollCreatorJid, pollMsgId, pollEncKey, voterJid }) {
     const sign = Buffer.concat([
         toBinary(pollMsgId),
@@ -93,6 +150,7 @@ export function decryptPollVote({ encPayload, encIv }, { pollCreatorJid, pollMsg
         return Buffer.from(txt);
     }
 }
+
 export function decryptEventResponse({ encPayload, encIv }, { eventCreatorJid, eventMsgId, eventEncKey, responderJid }) {
     const sign = Buffer.concat([
         toBinary(eventMsgId),
@@ -110,6 +168,7 @@ export function decryptEventResponse({ encPayload, encIv }, { eventCreatorJid, e
         return Buffer.from(txt);
     }
 }
+
 const processMessage = async (message, { shouldProcessHistoryMsg, placeholderResendCache, ev, creds, signalRepository, keyStore, logger, options, getMessage }) => {
     const meId = creds.me.id;
     const { accountSettings } = creds;
@@ -449,8 +508,11 @@ const processMessage = async (message, { shouldProcessHistoryMsg, placeholderRes
                 emitGroupRequestJoin(participant, action, method);
                 break;
         }
+    }
+
     if (Object.keys(chat).length > 1) {
         ev.emit('chats.update', [chat]);
     }
 };
+
 export default processMessage;

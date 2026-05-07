@@ -1,5 +1,6 @@
 import { getBinaryNodeChild, getBinaryNodeChildren, getBinaryNodeChildString } from '../../WABinary/index.js';
 import { USyncUser } from '../USyncUser.js';
+
 export class USyncBotProfileProtocol {
     constructor() {
         this.name = 'bot';
