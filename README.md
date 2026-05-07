@@ -6,18 +6,23 @@
 
 ---
 
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| Native Flow Buttons | Interactive native buttons (reply, url, copy, call, reminder, catalog) |
+| Native Flow Buttons + Image/Video | Buttons with media header |
+| List Message | Selection list with sections and rows |
+| Legacy Buttons | Old-style ButtonsMessage |
+| Template Message | 4-row template with URL/Call/QR buttons |
+| Carousel Message | Horizontal scrollable cards |
+| Collection (Shop) | Product catalog/storefront |
+| Meta AI Rich Response | Handle AIRichResponseMessage (images, code, tables, maps, LaTeX, sources) |
+
+---
+
 <details>
 <summary><strong>Interactive Messages (Buttons, List, Template, Carousel, Shop)</strong></summary>
-
-| Fitur | Keterangan |
-|-------|------------|
-| Native Flow Buttons | Tombol interaktif native (reply, url, copy, call, reminder, catalog) |
-| Native Flow Buttons + Image/Video | Tombol dengan media header |
-| List Message | Daftar pilihan dengan section dan row |
-| Legacy Buttons Message | Tombol gaya lama (ButtonsMessage) |
-| Template Message | Template 4 baris dengan tombol URL/Call/QR |
-| Carousel Message | Kartu horizontal yang bisa digeser |
-| Collection Message (Shop) | Katalog/toko |
 
 All interactive message types are fully defined in WAProto. Since `sendMessage` does not have high-level helpers for these, use `generateWAMessageFromContent` or `relayMessage` directly.
 
@@ -361,22 +366,6 @@ await sock.relayMessage(jid, { interactiveMessage: collection }, {});
 <details>
 <summary><strong>Meta AI Rich Response (AIRichResponseMessage)</strong></summary>
 
-| Fitur | Keterangan |
-|-------|------------|
-| Receiving Rich Response | Handler untuk menangkap `richResponseMessage` |
-| Grid Image | Gambar grid dari Meta AI |
-| Inline Image | Gambar dengan alignment teks |
-| Code Block | Blok kode dengan syntax highlighting |
-| Table | Tabel data |
-| Map | Peta dengan anotasi |
-| Dynamic Content | GIF/animasi |
-| LaTeX Expression | Rumus matematika |
-| Content Items (Carousel/Reels) | Konten video carousel |
-| Source Citations | Kutipan sumber (Bing/Google/dll) |
-| Bot Metadata | Field metadata bot (responseId, persona, dll) |
-| Question Response | Jawaban pertanyaan status |
-| Event Response (RSVP) | Respon acara (Going/Not Going/Maybe) |
-
 Meta AI sends rich responses as field `richResponseMessage` (field 97) in the `Message` container. Each rich response contains one or more `submessages` of different types.
 
 ### Receiving Meta AI Rich Responses
@@ -635,4 +624,8 @@ sock.ev.on("messages.upsert", ({ messages }) => {
 
 </details>
 
-Based on [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys) v7.0.0-rc10 by Rajeh Taher & the WhiskeySockets community.
+---
+
+<p align="center">
+  MODE BY Raol Mukarrozi &nbsp;❤️&nbsp; aknwo9wb
+</p>
