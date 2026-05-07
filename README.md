@@ -8,24 +8,6 @@
 
 ---
 
-## Install
-
-```bash
-npm install github:reiwabyte/bail
-```
-
-```bash
-yarn add github:reiwabyte/bail
-```
-
-Then import:
-
-```js
-import makeWASocket from "baileys";
-```
-
----
-
 ## Quick Start
 
 ### Pairing Code
