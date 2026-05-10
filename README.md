@@ -9,7 +9,7 @@
 > [!CAUTION]
 > NOTICE OF BREAKING CHANGE.
 >
-> As of this fork, multiple changes and additions have been introduced on top of the original Baileys v7.0.0-rc10 codebase, including extended interactive message support and Meta AI rich response handling.
+> As of this fork, multiple changes and additions have been introduced on top of the original Baileys v7.0.0-rc10 codebase.
 
 # Disclaimer
 This project is not affiliated, associated, authorized, endorsed by, or in any way officially connected with WhatsApp or any of its subsidiaries or its affiliates.
