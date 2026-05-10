@@ -1,8 +1,8 @@
 <div align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:25D366,100:128C7E&height=200&text=bail&fontSize=60&fontColor=fff&animation=fadeIn&fontAlignY=40&desc=WhatsApp%20Web%20API%20Library%20%E2%80%94%20based%20on%20%40whiskeysockets%2Fbaileys%20v7.0.0-rc10&descAlignY=55&descSize=15"/>
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:25D366,100:128C7E&height=200&text=yelib&fontSize=60&fontColor=fff&animation=fadeIn&fontAlignY=40&desc=WhatsApp%20Web%20API%20Library%20%E2%80%94%20v1.0.0%20%E2%80%94%20based%20on%20%40whiskeysockets%2Fbaileys%20v7.0.0-rc10&descAlignY=55&descSize=15"/>
 </div>
 
-> **CAUTION**
+> [!CAUTION]
 > NOTICE OF BREAKING CHANGE.
 >
 > As of this fork, multiple changes and additions have been introduced on top of the original Baileys v7.0.0-rc10 codebase, including extended interactive message support and Meta AI rich response handling.
@@ -14,9 +14,13 @@ The official WhatsApp website can be found at whatsapp.com. "WhatsApp" as well a
 The maintainers of this project do not in any way condone the use of this application in practices that violate the Terms of Service of WhatsApp. The maintainers of this application call upon the personal responsibility of its users to use this application in a fair way, as it is intended to be used.
 Use at your own discretion. Do not spam people with this. We discourage any stalkerware, bulk or automated messaging usage.
 
-> **IMPORTANT**
+> [!IMPORTANT]
 > The original repository had to be removed by the original author &mdash; we now continue development in this repository here.
 > This is the only official repository and is maintained by the community.
 > **Official Channel**: [WhatsApp Channel](https://whatsapp.com/channel/0029VbCih2O1noz41RfWbV3X)
+
+> [!IMPORTANT]
+> The new guide is a work in progress. Expect missing pages/content. Report missing or incorrect content.
+> You can still access the old guide here: README.md, or the NPM homepage.
 
 
