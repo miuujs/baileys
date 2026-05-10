@@ -3,7 +3,7 @@
   "type": "module",
   "version": "1.0.0",
   "description": "WhatsApp Web API Library",
-  "author": "reiwabyte",
+  "author": "miuujs",
   "main": "src/index.js",
   "license": "GPL-3.0",
   "files": [
