@@ -9,15 +9,6 @@
 >
 > As of this fork, multiple changes and additions have been introduced on top of the original Baileys v7.0.0-rc10 codebase, including extended interactive message support and Meta AI rich response handling.
 
-# Important Note
-This is a temporary README.md.
-
-# Get Support
-🌐 **Community Website**: Coming soon
-
-# Sponsor
-If you'd like to financially support this project, you can reach out to the maintainers.
-
 # Disclaimer
 This project is not affiliated, associated, authorized, endorsed by, or in any way officially connected with WhatsApp or any of its subsidiaries or its affiliates.
 The official WhatsApp website can be found at whatsapp.com. "WhatsApp" as well as related names, marks, emblems and images are registered trademarks of their respective owners.
@@ -36,7 +27,7 @@ Use at your own discretion. Do not spam people with this. We discourage any stal
 > **IMPORTANT**
 > The original repository had to be removed by the original author &mdash; we now continue development in this repository here.
 > This is the only official repository and is maintained by the community.
-> 🌐 **Community Website**: Coming soon
+> **Official Channel**: [WhatsApp Channel](https://whatsapp.com/channel/0029VbCih2O1noz41RfWbV3X)
 
 <hr/>
 
