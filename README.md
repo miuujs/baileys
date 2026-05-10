@@ -1,6 +1,10 @@
-<div align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:25D366,100:128C7E&height=200&text=yelib&fontSize=60&fontColor=fff&animation=fadeIn&fontAlignY=40&desc=WhatsApp%20Web%20API%20Library%20%E2%80%94%20v1.0.0%20%E2%80%94%20based%20on%20%40whiskeysockets%2Fbaileys%20v7.0.0-rc10&descAlignY=55&descSize=15"/>
-</div>
+<p align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:25D366,100:128C7E&height=200&section=header&text=yelib&fontSize=60&fontColor=fff&animation=fadeIn&fontAlignY=35"/>
+</p>
+
+<p align="center">
+  <strong>WhatsApp Web API Library</strong> &mdash; v1.0.0 &mdash; based on @whiskeysockets/baileys v7.0.0-rc10
+</p>
 
 > [!CAUTION]
 > NOTICE OF BREAKING CHANGE.
@@ -18,9 +22,5 @@ Use at your own discretion. Do not spam people with this. We discourage any stal
 > The original repository had to be removed by the original author &mdash; we now continue development in this repository here.
 > This is the only official repository and is maintained by the community.
 > **Official Channel**: [WhatsApp Channel](https://whatsapp.com/channel/0029VbCih2O1noz41RfWbV3X)
-
-> [!IMPORTANT]
-> The new guide is a work in progress. Expect missing pages/content. Report missing or incorrect content.
-> You can still access the old guide here: README.md, or the NPM homepage.
 
 
