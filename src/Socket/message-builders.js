@@ -17,7 +17,7 @@ import {
     STORIES_JID
 } from '../WABinary/index.js';
 
-export class Dugong {
+export class MessageBuilders {
     constructor(waUploadToServer, relayMessageFn, config, sock) {
         this.relayMessage = relayMessageFn;
         this.waUploadToServer = waUploadToServer;
