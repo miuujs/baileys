@@ -658,19 +658,15 @@ await sock.relayMessage(jid, msg.message, { messageId: msg.key.id });
 Each socket layer extends the previous via composition:
 
 ```
-makeSocket              -> WebSocket + Noise protocol + pre-key management
-  makeChatsSocket       -> App state sync + chat modifications + profile
-    makeGroupsSocket    -> Group CRUD + participant management
+makeSocket -> WebSocket + Noise protocol + pre-key management
+  makeChatsSocket -> App state sync + chat modifications + profile
+    makeGroupsSocket -> Group CRUD + participant management
       makeNewsletterSocket -> Newsletter follow/unfollow/metadata
         makeMessagesSendSocket -> Message sending + relay
           makeMessagesRecvSocket -> Message receiving + decryption
-            makeBusinessSocket   -> Product catalog + business profile
+            makeBusinessSocket -> Product catalog + business profile
               makeCommunitiesSocket -> Community CRUD + sub-groups
-                makeWASocket       <- Top-level export
+                makeWASocket <- Top-level export
 ```
 
----
 
-## License
-
-GPL-3.0
