@@ -6,6 +6,21 @@
   <strong>WhatsApp Web API Library</strong> &mdash; v1.0.0 &mdash; based on @whiskeysockets/baileys v7.0.0-rc10
 </p>
 
+<p align="center">
+  <a href="https://github.com/miuujs/baileys/stargazers">
+    <img src="https://img.shields.io/github/stars/miuujs/baileys?style=for-the-badge&color=25D366" alt="Stars"/>
+  </a>
+  <a href="https://github.com/miuujs/baileys/forks">
+    <img src="https://img.shields.io/github/forks/miuujs/baileys?style=for-the-badge&color=128C7E" alt="Forks"/>
+  </a>
+  <a href="https://github.com/miuujs/baileys/issues">
+    <img src="https://img.shields.io/github/issues/miuujs/baileys?style=for-the-badge&color=075E54" alt="Issues"/>
+  </a>
+  <a href="https://github.com/miuujs/baileys/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/license-GPL--3.0-25D366?style=for-the-badge" alt="License"/>
+  </a>
+</p>
+
 > [!CAUTION]
 > NOTICE OF BREAKING CHANGE.
 >
@@ -29,7 +44,15 @@ Use at your own discretion. Do not spam people with this. We discourage any stal
 ## Installation
 
 ```bash
-npm install baileys
+git clone https://github.com/miuujs/baileys
+cd baileys
+npm install
+```
+
+Or add directly to your project:
+
+```bash
+npm install github:miuujs/baileys
 ```
 
 This fork is ESM-only. Ensure your `package.json` contains `"type": "module"`.
@@ -440,6 +463,17 @@ func main() {
 );
 ```
 
+### Code Highlight Types
+
+| Code | Name | Description |
+| ---- | ---- | ----------- |
+| 0 | DEFAULT | Normal text, whitespace, operators |
+| 1 | KEYWORD | Language keywords (`const`, `func`, `if`, etc.) |
+| 2 | METHOD | Function/method calls (identifier followed by `(`) |
+| 3 | STRING | String literals (`"..."`, `'...'`, `` `...` ``) |
+| 4 | NUMBER | Numeric values (int, float, hex, binary, octal) |
+| 5 | COMMENT | Comments (`//`, `/* */`, `#`) |
+
 ### Link Message
 
 ```js
@@ -459,6 +493,23 @@ await sock.sendLink(
 );
 ```
 
+### SubMessage Types Reference
+
+Each rich response message consists of an array of submessages. Each submessage has a `messageType` and a corresponding payload field:
+
+| messageType | Name | Payload Field | Description |
+| ----------- | ---- | ------------- | ----------- |
+| 0 | UNKNOWN | -- | Unknown/empty submessage |
+| 1 | GRID_IMAGE | `gridImageMetadata` | Grid layout of images |
+| 2 | TEXT | `messageText` | Plain text content |
+| 3 | INLINE_IMAGE | `imageMetadata` | Inline image with URL and alignment |
+| 4 | TABLE | `tableMetadata` | Table with rows and headings |
+| 5 | CODE | `codeMetadata` | Code block with syntax highlighting |
+| 6 | DYNAMIC | `dynamicMetadata` | Dynamic/loading content |
+| 7 | MAP | `mapMetadata` | Map with annotations |
+| 8 | LATEX | `latexMetadata` | LaTeX math expressions |
+| 9 | CONTENT_ITEMS | `contentItemsMetadata` | Content items/cards |
+
 ### Rich Message (Custom Submessages)
 
 ```js
@@ -466,7 +517,29 @@ await sock.sendRichMessage(
   jid,
   [
     { messageType: 2, messageText: 'Header text' },
-    { messageType: 4, tableMetadata: { title: 'Table', rows: [{ items: ['A', 'B'], isHeading: true }, { items: ['1', '2'] }] } },
+    {
+      messageType: 4,
+      tableMetadata: {
+        title: 'Stats',
+        rows: [
+          { items: ['Metric', 'Value'], isHeading: true },
+          { items: ['Users', '1000'] },
+          { items: ['Uptime', '99.9%'] }
+        ]
+      }
+    },
+    {
+      messageType: 5,
+      codeMetadata: {
+        codeLanguage: 'javascript',
+        codeBlocks: [
+          { highlightType: 1, codeContent: 'const ' },
+          { highlightType: 0, codeContent: 'msg = ' },
+          { highlightType: 3, codeContent: '"hello"' },
+          { highlightType: 0, codeContent: ';' }
+        ]
+      }
+    },
     { messageType: 2, messageText: 'Footer text' }
   ],
   quoted
@@ -511,6 +584,40 @@ await sock.sendMessage(jid, {
     image: { url: 'https://example.com/banner.jpg' }
   }
 });
+```
+
+### Button Types Reference
+
+| name | buttonParamsJson fields | Description |
+| ---- | ----------------------- | ----------- |
+| `quick_reply` | `display_text` (string), `id` (string) | Simple reply button, sends the `id` back as a message |
+| `cta_url` | `display_text` (string), `url` (string) | Opens a URL when tapped |
+| `cta_copy` | `display_text` (string), `copy_code` (string) | Copies text to clipboard |
+| `single_select` | `title` (string), `sections` (array of `{ title, rows: [{ title, id, description? }] }`) | Shows a list/select menu with sections and rows |
+| `call_permission_request` | `display_text` (string), `id` (string) | Requests call permission |
+
+### Button Features
+
+Each button can include additional native flow features via `buttonParamsJson`:
+
+| Feature | Field | Description |
+| ------- | ----- | ----------- |
+| Limited Time Offer | `limited_time_offer_seconds` (number) | Shows countdown timer on button |
+| Bottom Sheet | `bottom_sheet` (boolean) | Renders button options as a bottom sheet |
+| Tap Target Config | `tap_target_configuration` (object) | Custom tap target behavior |
+
+Example with advanced features:
+
+```js
+{
+  name: 'quick_reply',
+  buttonParamsJson: JSON.stringify({
+    display_text: 'Claim Offer',
+    id: '.claim',
+    limited_time_offer_seconds: 3600,
+    bottom_sheet: true
+  })
+}
 ```
 
 ### List Menu
