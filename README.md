@@ -359,228 +359,251 @@ await sock.sendMessage(jid, {
 
 ## AI Rich Response Messages
 
-Send messages styled like Meta AI -- tables, code blocks, and rich text via `botForwardedMessage` > `richResponseMessage`.
+Send messages styled like Meta AI -- tables, code blocks, rich text, and links.
 
-### Table
+### Table V1
 
 ```js
-import { randomUUID, randomBytes } from 'crypto';
-
-const sections = {
-  response_id: randomUUID(),
-  sections: [
-    {
-      view_model: {
-        primitive: {
-          text: 'Language Comparison',
-          __typename: 'GenAIMarkdownTextUXPrimitive'
-        },
-        __typename: 'GenAISingleLayoutViewModel'
-      }
-    },
-    {
-      view_model: {
-        primitive: {
-          rows: [
-            { items: ['Feature', 'Java', 'JavaScript'], isHeading: true },
-            { items: ['Type', 'Compiled', 'Interpreted'] },
-            { items: ['Typing', 'Static', 'Dynamic'] }
-          ],
-          __typename: 'GenATableUXPrimitive'
-        },
-        __typename: 'GenAISingleLayoutViewModel'
-      }
-    }
-  ]
-};
-
-const msg = {
-  messageContextInfo: {
-    deviceListMetadata: {
-      senderKeyIndexes: [],
-      recipientKeyIndexes: [],
-      recipientKeyHash: '',
-      recipientTimestamp: Math.floor(Date.now() / 1000)
-    },
-    deviceListMetadataVersion: 2,
-    messageSecret: randomBytes(32)
-  },
-  botForwardedMessage: {
-    message: {
-      richResponseMessage: {
-        submessages: [{ messageType: 2, messageText: 'Language Comparison' }],
-        messageType: 1,
-        unifiedResponse: {
-          data: Buffer.from(JSON.stringify(sections)).toString('base64')
-        },
-        contextInfo: {
-          forwardingScore: 2,
-          isForwarded: true,
-          forwardedAiBotMessageInfo: { botJid: '0@s.whatsapp.net' },
-          forwardOrigin: 4,
-          botMessageSharingInfo: { botEntryPointOrigin: 1, forwardScore: 2 }
-        }
-      }
-    }
-  }
-};
-
-const { generateWAMessageFromContent } = await import('baileys/src/Utils/index.js');
-const richMsg = generateWAMessageFromContent(jid, msg, { userJid: sock.user.id });
-await sock.relayMessage(jid, richMsg.message, { messageId: richMsg.key.id });
+await sock.sendTable(
+  jid,
+  'Language Comparison',
+  ['Feature', 'Java', 'JavaScript'],
+  [
+    ['Type', 'Compiled', 'Interpreted'],
+    ['Typing', 'Static', 'Dynamic'],
+    ['Main Use', 'Enterprise', 'Web/Full-stack']
+  ],
+  quoted,
+  { headerText: 'Comparison:', footer: 'Reference' }
+);
 ```
 
-### Code Block
+### Table V2 (Unified Response)
 
 ```js
-const codeSections = {
-  response_id: randomUUID(),
-  sections: [
-    {
-      view_model: {
-        primitive: {
-          text: 'JavaScript Example:',
-          __typename: 'GenAIMarkdownTextUXPrimitive'
-        },
-        __typename: 'GenAISingleLayoutViewModel'
-      }
-    },
-    {
-      view_model: {
-        primitive: {
-          language: 'javascript',
-          code_blocks: [
-            { content: 'function ', type: 'KEYWORD' },
-            { content: 'hello', type: 'DEFAULT' },
-            { content: '() {', type: 'DEFAULT' },
-            { content: '\n  return ', type: 'DEFAULT' },
-            { content: '"Hello World"', type: 'STR' },
-            { content: ';\n}', type: 'DEFAULT' }
-          ],
-          __typename: 'GenAICodeUXPrimitive'
-        },
-        __typename: 'GenAISingleLayoutViewModel'
-      }
-    }
-  ]
-};
-
-const codeMsg = {
-  messageContextInfo: {
-    deviceListMetadata: {
-      senderKeyIndexes: [],
-      recipientKeyIndexes: [],
-      recipientKeyHash: '',
-      recipientTimestamp: Math.floor(Date.now() / 1000)
-    },
-    deviceListMetadataVersion: 2,
-    messageSecret: randomBytes(32)
-  },
-  botForwardedMessage: {
-    message: {
-      richResponseMessage: {
-        submessages: [],
-        messageType: 1,
-        unifiedResponse: {
-          data: Buffer.from(JSON.stringify(codeSections)).toString('base64')
-        },
-        contextInfo: {
-          forwardingScore: 2,
-          isForwarded: true,
-          forwardedAiBotMessageInfo: { botJid: '0@s.whatsapp.net' },
-          forwardOrigin: 4,
-          botMessageSharingInfo: { botEntryPointOrigin: 1, forwardScore: 2 }
-        }
-      }
-    }
-  }
-};
-
-const richMsg = generateWAMessageFromContent(jid, codeMsg, { userJid: sock.user.id });
-await sock.relayMessage(jid, richMsg.message, { messageId: richMsg.key.id });
+await sock.sendTableV2(
+  jid,
+  [
+    'Language Comparison',
+    'Feature | Java | JavaScript',
+    'Type | Compiled | Interpreted;;Typing | Static | Dynamic'
+  ],
+  quoted,
+  { headerText: 'Comparison:', text: 'See below:', footer: 'Reference' }
+);
 ```
 
----
-
-## Album Message
-
-Send multiple images/videos in a single album.
+### List
 
 ```js
-import { randomBytes } from 'crypto';
+await sock.sendList(
+  jid,
+  'Bot Info',
+  [
+    ['Name', 'yelib'],
+    ['Version', '1.0.0'],
+    ['Based on', 'Baileys v7.0.0-rc10']
+  ],
+  quoted,
+  { footer: 'yelib' }
+);
+```
 
-const album = await generateWAMessageFromContent(jid, {
-  messageContextInfo: { messageSecret: randomBytes(32) },
-  albumMessage: {
-    expectedImageCount: 2,
-    expectedVideoCount: 1
+### Code Block V1
+
+```js
+await sock.sendCodeBlock(
+  jid,
+  `function hello(name) {
+  return "Hello " + name
+}
+hello("World")`,
+  quoted,
+  { language: 'javascript', title: 'Example Code', footer: 'yelib' }
+);
+```
+
+### Code Block V2 (Unified Response)
+
+Supports syntax highlighting for JavaScript, TypeScript, Python, Go, Lua, Bash.
+
+```js
+await sock.sendCodeBlockV2(
+  jid,
+  `package main
+import "fmt"
+func main() {
+    fmt.Println("Hello, World!")
+}`,
+  quoted,
+  { language: 'go', title: 'Go Example', text: 'A simple Go program:', footer: 'yelib' }
+);
+```
+
+### Link Message
+
+```js
+await sock.sendLink(
+  jid,
+  'Results:\nLink 1: {{IE_0}}click here{{/IE_0}}\nLink 2: {{IE_1}}click here{{/IE_1}}',
+  ['https://example.com/1', 'https://example.com/2'],
+  quoted,
+  {
+    headerText: 'Search Results',
+    footer: 'yelib',
+    citations: [
+      { sourceTitle: 'Source 1', citationNumber: 1 },
+      { sourceTitle: 'Source 2', citationNumber: 2 }
+    ]
   }
-}, { userJid: sock.user.id });
+);
+```
 
-await sock.relayMessage(jid, album.message, { messageId: album.key.id });
+### Rich Message (Custom Submessages)
 
-const items = [
-  { image: { url: './photo1.jpg' }, caption: 'Photo 1' },
-  { image: { url: './photo2.jpg' }, caption: 'Photo 2' },
-  { video: { url: './video.mp4' }, caption: 'Video clip' }
-];
+```js
+await sock.sendRichMessage(
+  jid,
+  [
+    { messageType: 2, messageText: 'Header text' },
+    { messageType: 4, tableMetadata: { title: 'Table', rows: [{ items: ['A', 'B'], isHeading: true }, { items: ['1', '2'] }] } },
+    { messageType: 2, messageText: 'Footer text' }
+  ],
+  quoted
+);
+```
 
-for (const item of items) {
-  const mediaMsg = await generateWAMessageFromContent(jid, {
-    messageContextInfo: { messageSecret: randomBytes(32) },
-    ...await generateWAMessageContent(item, { upload: sock.waUploadToServer })
-  }, { userJid: sock.user.id });
-  await sock.relayMessage(jid, mediaMsg.message, { messageId: mediaMsg.key.id });
+### Capture & Resend Unified Response
+
+```js
+const captured = sock.captureUnifiedResponse(msg);
+if (captured) {
+  await sock.sendUnifiedResponse(jid, quoted, captured);
 }
 ```
 
 ---
 
-## Event Message
+## Interactive Messages
+
+### Native Flow Buttons (via sendMessage)
 
 ```js
-import { proto } from 'baileys/WAProto/index.js';
+await sock.sendMessage(jid, {
+  interactiveMessage: {
+    title: 'Welcome!',
+    footer: 'yelib',
+    buttons: [
+      {
+        name: 'quick_reply',
+        buttonParamsJson: JSON.stringify({ display_text: 'Menu', id: '.menu' })
+      },
+      {
+        name: 'cta_url',
+        buttonParamsJson: JSON.stringify({ display_text: 'Website', url: 'https://example.com' })
+      },
+      {
+        name: 'cta_copy',
+        buttonParamsJson: JSON.stringify({ display_text: 'Copy Code', copy_code: 'YELIB2024' })
+      }
+    ],
+    header: 'Choose an option',
+    image: { url: 'https://example.com/banner.jpg' }
+  }
+});
+```
 
-const eventMsg = {
-  eventMessage: proto.Message.EventMessage.fromObject({
+### List Menu
+
+```js
+await sock.sendMessage(jid, {
+  interactiveMessage: {
+    title: 'Select Category',
+    footer: 'yelib',
+    buttons: [{
+      name: 'single_select',
+      buttonParamsJson: JSON.stringify({
+        title: 'Menu',
+        sections: [
+          { title: 'Games', rows: [{ title: 'Quiz', id: '.quiz' }, { title: 'Guess', id: '.guess' }] },
+          { title: 'Tools', rows: [{ title: 'Sticker', id: '.sticker' }, { title: 'TTS', id: '.tts' }] }
+        ]
+      })
+    }],
+    header: 'Bot Menu'
+  }
+});
+```
+
+### Carousel
+
+```js
+await sock.sendMessage(jid, {
+  interactiveMessage: {
+    title: 'Products',
+    footer: 'yelib',
+    carouselMessage: {
+      cards: [
+        {
+          body: { text: 'Product A - Rp50,000' },
+          footer: { text: '10% off' },
+          header: { title: 'Product A' },
+          nativeFlowMessage: { buttons: [{ name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: 'Buy', id: '.buy_a' }) }] }
+        },
+        {
+          body: { text: 'Product B - Rp75,000' },
+          footer: { text: '15% off' },
+          header: { title: 'Product B' },
+          nativeFlowMessage: { buttons: [{ name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: 'Buy', id: '.buy_b' }) }] }
+        }
+      ],
+      messageVersion: 1
+    }
+  }
+});
+```
+
+### Album Message
+
+```js
+await sock.sendMessage(jid, {
+  albumMessage: [
+    { image: { url: './photo1.jpg' }, caption: 'Photo 1' },
+    { image: { url: './photo2.jpg' }, caption: 'Photo 2' },
+    { video: { url: './video.mp4' }, caption: 'Video' }
+  ]
+});
+```
+
+### Event Message
+
+```js
+await sock.sendMessage(jid, {
+  eventMessage: {
     name: 'Community Meetup',
     description: 'Join us for the monthly meetup!',
     startTime: Date.now() + 86400000,
-    location: {
-      degreesLatitude: -6.2,
-      degreesLongitude: 106.8,
-      name: 'Jakarta'
-    }
-  })
-};
-
-const msg = generateWAMessageFromContent(jid, eventMsg, { userJid: sock.user.id });
-await sock.relayMessage(jid, msg.message, { messageId: msg.key.id });
+    location: { degreesLatitude: -6.2, degreesLongitude: 106.8, name: 'Jakarta' }
+  }
+});
 ```
 
----
-
-## Poll Result
+### Poll Result
 
 ```js
-const pollResult = {
-  pollResultMessage: proto.Message.PollResultMessage.fromObject({
+await sock.sendMessage(jid, {
+  pollResultMessage: {
     name: 'Favorite Language?',
     pollVotes: [
       { optionName: 'JavaScript', optionVoteCount: 42 },
       { optionName: 'Python', optionVoteCount: 38 },
       { optionName: 'Go', optionVoteCount: 15 }
     ]
-  })
-};
-
-const msg = generateWAMessageFromContent(jid, pollResult, { userJid: sock.user.id });
-await sock.relayMessage(jid, msg.message, { messageId: msg.key.id });
+  }
+});
 ```
 
----
-
-## Product Message
+### Product Message
 
 ```js
 const { imageMessage } = await prepareWAMessageMedia(
@@ -588,7 +611,7 @@ const { imageMessage } = await prepareWAMessageMedia(
   { upload: sock.waUploadToServer }
 );
 
-const productMsg = {
+await sock.sendMessage(jid, {
   viewOnceMessage: {
     message: {
       interactiveMessage: {
@@ -613,42 +636,29 @@ const productMsg = {
           }
         },
         nativeFlowMessage: {
-          buttons: [{
-            name: 'quick_reply',
-            buttonParamsJson: JSON.stringify({ display_text: 'Buy Now', id: '.buy_p001' })
-          }]
+          buttons: [{ name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: 'Buy Now', id: '.buy_p001' }) }]
         }
       }
     }
   }
-};
-
-const msg = generateWAMessageFromContent(jid, productMsg, { userJid: sock.user.id });
-await sock.relayMessage(jid, msg.message, { messageId: msg.key.id });
+});
 ```
 
----
-
-## Payment Request
+### Payment Request
 
 ```js
-const paymentMsg = {
-  requestPaymentMessage: proto.Message.RequestPaymentMessage.fromObject({
+await sock.sendMessage(jid, {
+  requestPaymentMessage: {
     expiryTimestamp: Math.floor(Date.now() / 1000) + 86400,
     amount1000: 50000,
     currencyCodeIso4217: 'IDR',
     requestFrom: '628xxx@s.whatsapp.net',
     noteMessage: {
-      extendedTextMessage: {
-        text: 'Payment for order #123'
-      }
+      extendedTextMessage: { text: 'Payment for order #123' }
     },
     background: { id: 'DEFAULT', placeholderArgb: 0xfff0f0f0 }
-  })
-};
-
-const msg = generateWAMessageFromContent(jid, paymentMsg, { userJid: sock.user.id });
-await sock.relayMessage(jid, msg.message, { messageId: msg.key.id });
+  }
+});
 ```
 
 ---
