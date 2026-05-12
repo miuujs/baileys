@@ -57,6 +57,8 @@ npm install
 
 This fork is ESM-only. Ensure your `package.json` contains `"type": "module"`.
 
+> **Button Fix Applied:** Button (interactive/native flow) messages now include proper business metadata XML nodes (`<biz>`, `<engagement>`, `<interactive>`) matching the logic from `ourin-baileys`. This ensures buttons render correctly on WhatsApp clients.
+
 ---
 
 ## Quick Start
@@ -863,36 +865,37 @@ All features below were verified from the source code.
 | 24 | Payment Request | No | Yes | `Socket/message-builders.js` |
 | 25 | Group Status Message / V2 | No | Yes | `Utils/messages.js:657-658`, `Socket/message-builders.js` |
 | 26 | Status Mentions (proto field) | No | Yes | `WAProto/WAProto.proto:5222` |
-| 27 | Button Features (limited time offer, bottom sheet, tap target) | No | Yes | `Socket/messages-send.js` |
-| 28 | Capture & Resend Unified Response | No | Yes | `Utils/rich-messages.js:302-313` |
-| 29 | Forwarded AI Bot Info (Meta AI style) | No | Yes | `Utils/rich-messages.js:142-150` |
-| 30 | Full LID <-> PN Mapping System | No | Yes | `Signal/lid-mapping.js`, `WAUSync/Protocols/UsyncLIDProtocol.js` |
-| 31 | LID Session Migration | No | Yes | `Signal/libsignal.js:237-351` |
-| 32 | LID/PN Dual Addressing | No | Yes | `Utils/decode-wa-message.js:60-78` |
-| 33 | MessageRetryManager (base key collision detection) | No | Yes | `Utils/message-retry-manager.js` |
-| 34 | Newsletter Create + Delete via MEX GraphQL | No | Yes | `Socket/newsletter.js`, `Socket/mex.js` |
-| 35 | Newsletter Admin (Change Owner, Demote, Admin Count) | No | Yes | `Socket/newsletter.js` |
-| 36 | Newsletter Settings (Name, Description, Picture, Mute) | No | Yes | `Socket/newsletter.js` |
-| 37 | Newsletter React + Fetch Messages | No | Yes | `Socket/newsletter.js:106` |
-| 38 | Newsletter Live Updates Subscription | No | Yes | `Socket/newsletter.js:151` |
-| 39 | Newsletter Subscribers Count | No | Yes | `Socket/newsletter.js:65` |
-| 40 | Group Member Labeling | No | Yes | `Socket/messages-send.js:135-156` |
-| 41 | On-demand History Sync | No | Yes | `Socket/messages-recv.js:47-64` |
-| 42 | Media Re-upload (updateMediaMessage) | No | Yes | `Socket/messages-send.js:1104-1150` |
-| 43 | Peer Data Operation Messages | No | Yes | `Socket/messages-send.js:374-402` |
-| 44 | Reporting Token System | No | Yes | `Utils/reporting-utils.js` |
-| 45 | TC Token System (Trusted Contact) | No | Yes | `Utils/tc-token-utils.js` |
-| 46 | Privacy Token Handling | No | Yes | `Socket/messages-recv.js:1084-1104` |
-| 47 | Reachout Timelock Enforcement | No | Yes | `Types/State.js:10-29`, `Socket/messages-recv.js:175-211` |
-| 48 | Message Capping System | No | Yes | `Socket/messages-recv.js:213-223` |
-| 49 | Identity Change Handler | No | Yes | `Utils/identity-change-handler.js` |
-| 50 | WAM Analytics/Metrics Encoding | No | Yes | `WAM/` (BinaryInfo, encode, constants) |
-| 51 | Bot Profile USync Protocol | No | Yes | `WAUSync/Protocols/UsyncBotProfileProtocol.js` |
-| 52 | Status WhatsApp with Mentions | No | Yes | `Socket/message-builders.js` |
-| 53 | MessageBuilders System (auto type routing) | No | Yes | `Socket/message-builders.js` |
+| 27 | Button Features (limited time offer, bottom sheet, tap target) | No | Yes | `Socket/messages-send.js:16-22` |
+| 28 | Business Metadata Nodes for Buttons (ported from ourin-baileys) | No | Yes | `WABinary/generic-utils.js:137-190`, `Socket/messages-send.js:24-35,944-948` |
+| 29 | Capture & Resend Unified Response | No | Yes | `Utils/rich-messages.js:302-313` |
+| 30 | Forwarded AI Bot Info (Meta AI style) | No | Yes | `Utils/rich-messages.js:142-150` |
+| 31 | Full LID <-> PN Mapping System | No | Yes | `Signal/lid-mapping.js`, `WAUSync/Protocols/UsyncLIDProtocol.js` |
+| 32 | LID Session Migration | No | Yes | `Signal/libsignal.js:237-351` |
+| 33 | LID/PN Dual Addressing | No | Yes | `Utils/decode-wa-message.js:60-78` |
+| 34 | MessageRetryManager (base key collision detection) | No | Yes | `Utils/message-retry-manager.js` |
+| 35 | Newsletter Create + Delete via MEX GraphQL | No | Yes | `Socket/newsletter.js`, `Socket/mex.js` |
+| 36 | Newsletter Admin (Change Owner, Demote, Admin Count) | No | Yes | `Socket/newsletter.js` |
+| 37 | Newsletter Settings (Name, Description, Picture, Mute) | No | Yes | `Socket/newsletter.js` |
+| 38 | Newsletter React + Fetch Messages | No | Yes | `Socket/newsletter.js:106` |
+| 39 | Newsletter Live Updates Subscription | No | Yes | `Socket/newsletter.js:151` |
+| 40 | Newsletter Subscribers Count | No | Yes | `Socket/newsletter.js:65` |
+| 41 | Group Member Labeling | No | Yes | `Socket/messages-send.js:135-156` |
+| 42 | On-demand History Sync | No | Yes | `Socket/messages-recv.js:47-64` |
+| 43 | Media Re-upload (updateMediaMessage) | No | Yes | `Socket/messages-send.js:1104-1150` |
+| 44 | Peer Data Operation Messages | No | Yes | `Socket/messages-send.js:374-402` |
+| 45 | Reporting Token System | No | Yes | `Utils/reporting-utils.js` |
+| 46 | TC Token System (Trusted Contact) | No | Yes | `Utils/tc-token-utils.js` |
+| 47 | Privacy Token Handling | No | Yes | `Socket/messages-recv.js:1084-1104` |
+| 48 | Reachout Timelock Enforcement | No | Yes | `Types/State.js:10-29`, `Socket/messages-recv.js:175-211` |
+| 49 | Message Capping System | No | Yes | `Socket/messages-recv.js:213-223` |
+| 50 | Identity Change Handler | No | Yes | `Utils/identity-change-handler.js` |
+| 51 | WAM Analytics/Metrics Encoding | No | Yes | `WAM/` (BinaryInfo, encode, constants) |
+| 52 | Bot Profile USync Protocol | No | Yes | `WAUSync/Protocols/UsyncBotProfileProtocol.js` |
+| 53 | Status WhatsApp with Mentions | No | Yes | `Socket/message-builders.js` |
+| 54 | MessageBuilders System (auto type routing) | No | Yes | `Socket/message-builders.js` |
 
 > [!IMPORTANT]
 > Official Baileys refers to the original [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys) v7.
-> yelib (miuujs/baileys) is a fork that extends the original with 40+ additional features including interactive messages, album messages, AI rich response system, full LID mapping, event messages, payment support, newsletter GraphQL API, retry manager, MessageBuilders system, and various security/privacy systems. All features listed above are verified from the source code.
+> yelib (miuujs/baileys) is a fork that extends the original with 40+ additional features including interactive messages, album messages, AI rich response system, full LID mapping, event messages, payment support, newsletter GraphQL API, retry manager, MessageBuilders system, business metadata nodes for buttons (ported from ourin-baileys), and various security/privacy systems. All features listed above are verified from the source code.
 
 ---

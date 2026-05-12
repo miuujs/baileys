@@ -8,10 +8,31 @@ import { generateTableContent, generateTableContentV2, generateListContent, gene
 import { makeKeyedMutex, makeMutex } from '../Utils/make-mutex.js';
 import { getMessageReportingToken, shouldIncludeReportingToken } from '../Utils/reporting-utils.js';
 import { buildMergedTcTokenIndexWrite, isTcTokenExpired, resolveIssuanceJid, resolveTcTokenJid, shouldSendNewTcToken, storeTcTokensFromIqResult } from '../Utils/tc-token-utils.js';
-import { areJidsSameUser, getBinaryNodeChild, getBinaryNodeChildren, isHostedLidUser, isHostedPnUser, isJidBot, isJidGroup, isJidMetaAI, isLidUser, isPnUser, jidDecode, jidEncode, jidNormalizedUser, PSA_WID, S_WHATSAPP_NET } from '../WABinary/index.js';
+import { areJidsSameUser, getAdditionalNode, getBinaryNodeChild, getBinaryNodeChildren, isHostedLidUser, isHostedPnUser, isJidBot, isJidGroup, isJidMetaAI, isLidUser, isPnUser, jidDecode, jidEncode, jidNormalizedUser, PSA_WID, S_WHATSAPP_NET } from '../WABinary/index.js';
 import { USyncQuery, USyncUser } from '../WAUSync/index.js';
 import { makeNewsletterSocket } from './newsletter.js';
 import { MessageBuilders } from './message-builders.js';
+
+const NATIVE_FLOW_BUTTON_MAP = {
+    review_and_pay: 'order_details',
+    review_order: 'order_status',
+    payment_info: 'payment_info',
+    payment_status: 'payment_status',
+    payment_method: 'payment_method'
+};
+
+const getButtonType = (message) => {
+    const msg = normalizeMessageContent(message) || message;
+    if (msg?.buttonsMessage || msg?.listMessage)
+        return msg.listMessage ? 'list' : 'buttons';
+    const vm = msg?.viewOnceMessage?.message || msg?.viewOnceMessageV2?.message;
+    const im = vm?.interactiveMessage || msg?.interactiveMessage;
+    if (!im?.nativeFlowMessage) return null;
+    const btnName = im.nativeFlowMessage?.buttons?.[0]?.name;
+    if (btnName && NATIVE_FLOW_BUTTON_MAP[btnName])
+        return NATIVE_FLOW_BUTTON_MAP[btnName];
+    return 'interactive';
+};
 
 export const makeMessagesSocket = (config) => {
     const { logger, linkPreviewImageThumbnailWidth, generateHighQualityLinkPreview, options: httpRequestOptions, patchMessageBeforeSending, cachedGroupMetadata, enableRecentMessageCache, maxMsgRetryCount } = config;
@@ -918,6 +939,12 @@ export const makeMessagesSocket = (config) => {
             if (additionalNodes && additionalNodes.length > 0) {
                 ;
                 stanza.content.push(...additionalNodes);
+            }
+
+            const buttonType = getButtonType(message);
+            if (buttonType && !isNewsletter && !isStatus) {
+                const bizNodes = getAdditionalNode(buttonType);
+                stanza.content.push(...bizNodes);
             }
 
             logger.debug({ msgId }, `sending message to ${participants.length} devices`);
