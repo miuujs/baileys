@@ -57,8 +57,6 @@ npm install
 
 This fork is ESM-only. Ensure your `package.json` contains `"type": "module"`.
 
-> **Button Fix Applied:** Button (interactive/native flow) messages now include proper business metadata XML nodes (`<biz>`, `<engagement>`, `<interactive>`) matching the logic from `ourin-baileys`. This ensures buttons render correctly on WhatsApp clients.
-
 ---
 
 ## Quick Start
