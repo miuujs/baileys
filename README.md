@@ -770,6 +770,50 @@ await sock.sendMessage(jid, {
 
 ---
 
+---
+
+## Differences from Official Baileys
+
+Perbandingan fitur antara **yelib (miuujs/baileys)** dengan **Official Baileys ([@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys))**:
+
+| # | Fitur | Official Baileys | yelib (miuujs) |
+|---|-------|:---:|:---:|
+| 1 | **Text / Image / Video / Audio / Sticker / Document** | ✅ | ✅ |
+| 2 | **Location / Contact / Reaction / Poll** | ✅ | ✅ |
+| 3 | **Edit / Delete / Forward Message** | ✅ | ✅ |
+| 4 | **Group CRUD + Participant Management** | ✅ | ✅ |
+| 5 | **Community CRUD + Sub-groups** | ✅ | ✅ |
+| 6 | **Newsletter Follow/Unfollow/Metadata** | ✅ | ✅ |
+| 7 | **Business Profile & Product Catalog** | ✅ | ✅ |
+| 8 | **App State Sync + Chat Modifications** | ✅ | ✅ |
+| 9 | **WebSocket + Noise Protocol + Pre-key** | ✅ | ✅ |
+| 10 | **Interactive Message (Native Flow Buttons)** | ❌ | ✅ |
+| 11 | **List Menu (single_select)** | ❌ | ✅ |
+| 12 | **Carousel Message** | ❌ | ✅ |
+| 13 | **Album Message (multi media)** | ❌ | ✅ |
+| 14 | **AI Rich Response — Table V1 / V2** | ❌ | ✅ |
+| 15 | **AI Rich Response — Code Block V1 / V2** | ❌ | ✅ |
+| 16 | **AI Rich Response — Link Message** | ❌ | ✅ |
+| 17 | **AI Rich Response — List Info** | ❌ | ✅ |
+| 18 | **AI Rich Response — Rich Message (Custom Submessages)** | ❌ | ✅ |
+| 19 | **Latex Rendering** | ❌ | ✅ |
+| 20 | **Event Message** | ❌ | ✅ |
+| 21 | **Poll Result Message** | ❌ | ✅ |
+| 22 | **Product Message (viewOnce + interactive)** | ❌ | ✅ |
+| 23 | **Payment Request** | ❌ | ✅ |
+| 24 | **Status Mentions** | ❌ | ✅ |
+| 25 | **Capture & Resend Unified Response** | ❌ | ✅ |
+| 26 | **Button Features (Limited Time Offer, Bottom Sheet, Tap Target)** | ❌ | ✅ |
+| 27 | **Full LID ↔ PN Mapping** | ❌ | ✅ |
+| 28 | **MessageRetryManager** | ❌ | ✅ |
+| 29 | **Obfuscated Build** | ❌ | ✅ |
+
+> **Keterangan:** ✅ = Didukung, ❌ = Tidak didukung
+>
+> Official Baileys adalah versi original dari [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys) v7, sedangkan yelib (miuujs/baileys) adalah fork dengan puluhan fitur tambahan termasuk interactive message, album message, AI rich response, newsletter extras, business auto-injection, dan masih banyak lagi.
+
+---
+
 ## Socket Architecture
 
 Each socket layer extends the previous via composition:
