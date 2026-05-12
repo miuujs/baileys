@@ -770,47 +770,64 @@ await sock.sendMessage(jid, {
 
 ---
 
----
-
 ## Differences from Official Baileys
 
-Perbandingan fitur antara **yelib (miuujs/baileys)** dengan **Official Baileys ([@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys))**:
+Feature comparison between **yelib (miuujs/baileys)** and **Official Baileys ([@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys) v7)**.
 
-| # | Fitur | Official Baileys | yelib (miuujs) |
-|---|-------|:---:|:---:|
-| 1 | **Text / Image / Video / Audio / Sticker / Document** | ✅ | ✅ |
-| 2 | **Location / Contact / Reaction / Poll** | ✅ | ✅ |
-| 3 | **Edit / Delete / Forward Message** | ✅ | ✅ |
-| 4 | **Group CRUD + Participant Management** | ✅ | ✅ |
-| 5 | **Community CRUD + Sub-groups** | ✅ | ✅ |
-| 6 | **Newsletter Follow/Unfollow/Metadata** | ✅ | ✅ |
-| 7 | **Business Profile & Product Catalog** | ✅ | ✅ |
-| 8 | **App State Sync + Chat Modifications** | ✅ | ✅ |
-| 9 | **WebSocket + Noise Protocol + Pre-key** | ✅ | ✅ |
-| 10 | **Interactive Message (Native Flow Buttons)** | ❌ | ✅ |
-| 11 | **List Menu (single_select)** | ❌ | ✅ |
-| 12 | **Carousel Message** | ❌ | ✅ |
-| 13 | **Album Message (multi media)** | ❌ | ✅ |
-| 14 | **AI Rich Response — Table V1 / V2** | ❌ | ✅ |
-| 15 | **AI Rich Response — Code Block V1 / V2** | ❌ | ✅ |
-| 16 | **AI Rich Response — Link Message** | ❌ | ✅ |
-| 17 | **AI Rich Response — List Info** | ❌ | ✅ |
-| 18 | **AI Rich Response — Rich Message (Custom Submessages)** | ❌ | ✅ |
-| 19 | **Latex Rendering** | ❌ | ✅ |
-| 20 | **Event Message** | ❌ | ✅ |
-| 21 | **Poll Result Message** | ❌ | ✅ |
-| 22 | **Product Message (viewOnce + interactive)** | ❌ | ✅ |
-| 23 | **Payment Request** | ❌ | ✅ |
-| 24 | **Status Mentions** | ❌ | ✅ |
-| 25 | **Capture & Resend Unified Response** | ❌ | ✅ |
-| 26 | **Button Features (Limited Time Offer, Bottom Sheet, Tap Target)** | ❌ | ✅ |
-| 27 | **Full LID ↔ PN Mapping** | ❌ | ✅ |
-| 28 | **MessageRetryManager** | ❌ | ✅ |
-| 29 | **Obfuscated Build** | ❌ | ✅ |
+All features below were verified from the source code.
 
-> **Keterangan:** ✅ = Didukung, ❌ = Tidak didukung
->
-> Official Baileys adalah versi original dari [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys) v7, sedangkan yelib (miuujs/baileys) adalah fork dengan puluhan fitur tambahan termasuk interactive message, album message, AI rich response, newsletter extras, business auto-injection, dan masih banyak lagi.
+| # | Feature | Official | yelib | Source Reference |
+|---|---------|:-------:|:-----:|------------------|
+| 1 | Text / Image / Video / Audio / Sticker / Document | Yes | Yes | Standard message types |
+| 2 | Location / Contact / Reaction / Poll | Yes | Yes | Standard message types |
+| 3 | Edit / Delete / Forward Message | Yes | Yes | Standard message types |
+| 4 | Group CRUD + Participant Management | Yes | Yes | `Socket/groups.js` |
+| 5 | Community CRUD + Sub-groups | Yes | Yes | `Socket/communities.js` |
+| 6 | Newsletter Follow / Unfollow / Metadata | Yes | Yes | `Socket/newsletter.js` |
+| 7 | Business Profile & Product Catalog | Yes | Yes | `Socket/business.js` |
+| 8 | App State Sync + Chat Modifications | Yes | Yes | `Socket/chats.js` |
+| 9 | WebSocket + Noise Protocol + Pre-key | Yes | Yes | `Socket/socket.js` |
+| 10 | Native Flow Buttons (interactiveMessage) | No | Yes | `Socket/messages-send.js:1155` |
+| 11 | List Menu (single_select) | No | Yes | `Socket/messages-send.js:1155` |
+| 12 | Carousel Message | No | Yes | `Socket/messages-send.js:1155` |
+| 13 | Album Message (multi media) | No | Yes | `Utils/messages.js:465-470` |
+| 14 | AI Rich Response -- Table V1 / V2 | No | Yes | `Utils/rich-messages.js:158-227` |
+| 15 | AI Rich Response -- Code Block V1 / V2 | No | Yes | `Utils/rich-messages.js:180-244` |
+| 16 | AI Rich Response -- Link Message | No | Yes | `Utils/rich-messages.js:246-300` |
+| 17 | AI Rich Response -- List Info | No | Yes | `Utils/rich-messages.js:169-178` |
+| 18 | AI Rich Response -- Rich Message (Custom Submessages) | No | Yes | `Utils/rich-messages.js:190-193` |
+| 19 | Latex Rendering (RichSubMessageType) | No | Yes | `Utils/rich-messages.js:35` |
+| 20 | Event Message + Encrypted Response | No | Yes | `Utils/messages.js:410-429`, `Utils/process-message.js:362-408` |
+| 21 | Poll Result Message | No | Yes | `Socket/messages-send.js:1155` |
+| 22 | Poll Creation V3 (single-select) | No | Yes | `Utils/messages.js:455-462` |
+| 23 | Product Message (viewOnce + interactive) | No | Yes | `Utils/messages.js:397-406` |
+| 24 | Payment Request | No | Yes | `Socket/messages-send.js:1155` |
+| 25 | Group Status Message / V2 | No | Yes | `Utils/messages.js:657-658` |
+| 26 | Status Mentions (proto field) | No | Yes | `WAProto/WAProto.proto:5222` |
+| 27 | Button Features (limited time offer, bottom sheet, tap target) | No | Yes | `Socket/messages-send.js` |
+| 28 | Capture & Resend Unified Response | No | Yes | `Utils/rich-messages.js:302-313` |
+| 29 | Forwarded AI Bot Info (Meta AI style) | No | Yes | `Utils/rich-messages.js:142-150` |
+| 30 | Full LID <-> PN Mapping System | No | Yes | `Signal/lid-mapping.js`, `WAUSync/Protocols/UsyncLIDProtocol.js` |
+| 31 | LID Session Migration | No | Yes | `Signal/libsignal.js:237-351` |
+| 32 | LID/PN Dual Addressing | No | Yes | `Utils/decode-wa-message.js:60-78` |
+| 33 | MessageRetryManager | No | Yes | `Utils/message-retry-manager.js` |
+| 34 | Newsletter CRUD via MEX GraphQL | No | Yes | `Socket/newsletter.js`, `Socket/mex.js` |
+| 35 | Group Member Labeling | No | Yes | `Socket/messages-send.js:135-156` |
+| 36 | On-demand History Sync | No | Yes | `Socket/messages-recv.js:47-64` |
+| 37 | Media Re-upload (updateMediaMessage) | No | Yes | `Socket/messages-send.js:1104-1150` |
+| 38 | Peer Data Operation Messages | No | Yes | `Socket/messages-send.js:374-402` |
+| 39 | Reporting Token System | No | Yes | `Utils/reporting-utils.js` |
+| 40 | TC Token System (Trusted Contact) | No | Yes | `Utils/tc-token-utils.js` |
+| 41 | Privacy Token Handling | No | Yes | `Socket/messages-recv.js:1084-1104` |
+| 42 | Reachout Timelock Enforcement | No | Yes | `Types/State.js:10-29`, `Socket/messages-recv.js:175-211` |
+| 43 | Message Capping System | No | Yes | `Socket/messages-recv.js:213-223` |
+| 44 | Identity Change Handler | No | Yes | `Utils/identity-change-handler.js` |
+| 45 | WAM Analytics/Metrics Encoding | No | Yes | `WAM/` (BinaryInfo, encode, constants) |
+| 46 | Bot Profile USync Protocol | No | Yes | `WAUSync/Protocols/UsyncBotProfileProtocol.js` |
+
+> [!IMPORTANT]
+> Official Baileys refers to the original [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys) v7.
+> yelib (miuujs/baileys) is a fork that extends the original with 35+ additional features including interactive messages, album messages, AI rich response system, full LID mapping, event messages, payment support, newsletter GraphQL API, retry manager, and various security/privacy systems. All features listed above are verified from the source code.
 
 ---
 
