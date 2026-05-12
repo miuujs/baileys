@@ -2,8 +2,9 @@ import NodeCache from '@cacheable/node-cache';
 import { Boom } from '@hapi/boom';
 import { proto } from '../../WAProto/index.js';
 import { DEFAULT_CACHE_TTLS, WA_DEFAULT_EPHEMERAL } from '../Defaults/index.js';
-import { aggregateMessageKeysNotFromMe, assertMediaContent, assertMeId, bindWaitForEvent, decryptMediaRetryData, DEF_MEDIA_HOST, encodeNewsletterMessage, encodeSignedDeviceIdentity, encodeWAMessage, encryptMediaRetryRequest, extractDeviceJids, generateMessageIDV2, generateParticipantHashV2, generateWAMessage, getStatusCodeForMediaRetry, getUrlFromDirectPath, getWAUploadToServer, MessageRetryManager, normalizeMessageContent, parseAndInjectE2ESessions, unixTimestampSeconds } from '../Utils/index.js';
+import { aggregateMessageKeysNotFromMe, assertMediaContent, assertMeId, bindWaitForEvent, decryptMediaRetryData, DEF_MEDIA_HOST, encodeNewsletterMessage, encodeSignedDeviceIdentity, encodeWAMessage, encryptMediaRetryRequest, extractDeviceJids, generateMessageIDV2, generateParticipantHashV2, generateWAMessage, generateWAMessageFromContent, getStatusCodeForMediaRetry, getUrlFromDirectPath, getWAUploadToServer, MessageRetryManager, normalizeMessageContent, parseAndInjectE2ESessions, unixTimestampSeconds } from '../Utils/index.js';
 import { getUrlInfo } from '../Utils/link-preview.js';
+import { generateTableContent, generateTableContentV2, generateListContent, generateCodeBlockContent, generateCodeBlockContentV2, generateLinkContent, generateLinkContentV2, generateRichMessageContent, generateUnifiedResponseContent, captureUnifiedResponse } from '../Utils/rich-messages.js';
 import { makeKeyedMutex, makeMutex } from '../Utils/make-mutex.js';
 import { getMessageReportingToken, shouldIncludeReportingToken } from '../Utils/reporting-utils.js';
 import { buildMergedTcTokenIndexWrite, isTcTokenExpired, resolveIssuanceJid, resolveTcTokenJid, shouldSendNewTcToken, storeTcTokensFromIqResult } from '../Utils/tc-token-utils.js';
@@ -1149,6 +1150,14 @@ export const makeMessagesSocket = (config) => {
         },
         sendMessage: async (jid, content, options = {}) => {
             const userJid = authState.creds.me.id;
+            const { quoted } = options;
+
+            if (content.requestPaymentMessage || content.productMessage || content.interactiveButtons || content.interactiveMessage || content.albumMessage || content.album || content.eventMessage || content.pollResultMessage || content.groupStatusMessage) {
+                const msg = await generateWAMessageFromContent(jid, content, { quoted, userJid, upload: waUploadToServer });
+                await relayMessage(jid, msg.message, { messageId: msg.key.id });
+                return msg;
+            }
+
             if (
                 typeof content === 'object' &&
                 'disappearingMessagesInChat' in content &&
@@ -1233,6 +1242,52 @@ export const makeMessagesSocket = (config) => {
 
                 return fullMsg;
             }
-        }
+        },
+        sendTable: async (jid, title, headers, rows, quoted, options = {}) => {
+            const { message, messageId } = generateTableContent(title, headers, rows, quoted, options);
+            await relayMessage(jid, message, { messageId });
+            return { message, messageId };
+        },
+        sendTableV2: async (jid, table, quoted, options = {}) => {
+            const { message, messageId } = generateTableContentV2(table, quoted, options);
+            await relayMessage(jid, message, { messageId });
+            return { message, messageId };
+        },
+        sendList: async (jid, title, items, quoted, options = {}) => {
+            const { message, messageId } = generateListContent(title, items, quoted, options);
+            await relayMessage(jid, message, { messageId });
+            return { message, messageId };
+        },
+        sendCodeBlock: async (jid, code, quoted, options = {}) => {
+            const { message, messageId } = generateCodeBlockContent(code, quoted, options);
+            await relayMessage(jid, message, { messageId });
+            return { message, messageId };
+        },
+        sendCodeBlockV2: async (jid, code, quoted, options = {}) => {
+            const { message, messageId } = generateCodeBlockContentV2(code, quoted, options);
+            await relayMessage(jid, message, { messageId });
+            return { message, messageId };
+        },
+        sendLink: async (jid, text, links, quoted, options = {}) => {
+            const { message, messageId } = generateLinkContent(text, links, quoted, options);
+            await relayMessage(jid, message, { messageId });
+            return { message, messageId };
+        },
+        sendLinkV2: async (jid, text, links, quoted, options = {}) => {
+            const { message, messageId } = generateLinkContentV2(text, links, quoted, options);
+            await relayMessage(jid, message, { messageId });
+            return { message, messageId };
+        },
+        sendRichMessage: async (jid, submessages, quoted, options = {}) => {
+            const { message, messageId } = generateRichMessageContent(submessages, quoted);
+            await relayMessage(jid, message, { messageId });
+            return { message, messageId };
+        },
+        sendUnifiedResponse: async (jid, quoted, captured) => {
+            const { message, messageId } = generateUnifiedResponseContent(quoted, captured);
+            await relayMessage(jid, message, { messageId });
+            return { message, messageId };
+        },
+        captureUnifiedResponse
     };
 };
