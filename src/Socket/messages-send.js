@@ -11,6 +11,7 @@ import { buildMergedTcTokenIndexWrite, isTcTokenExpired, resolveIssuanceJid, res
 import { areJidsSameUser, getBinaryNodeChild, getBinaryNodeChildren, isHostedLidUser, isHostedPnUser, isJidBot, isJidGroup, isJidMetaAI, isLidUser, isPnUser, jidDecode, jidEncode, jidNormalizedUser, PSA_WID, S_WHATSAPP_NET } from '../WABinary/index.js';
 import { USyncQuery, USyncUser } from '../WAUSync/index.js';
 import { makeNewsletterSocket } from './newsletter.js';
+import { MessageBuilders } from './message-builders.js';
 
 export const makeMessagesSocket = (config) => {
     const { logger, linkPreviewImageThumbnailWidth, generateHighQualityLinkPreview, options: httpRequestOptions, patchMessageBeforeSending, cachedGroupMetadata, enableRecentMessageCache, maxMsgRetryCount } = config;
@@ -1069,6 +1070,8 @@ export const makeMessagesSocket = (config) => {
 
     const waUploadToServer = getWAUploadToServer(config, refreshMediaConn);
 
+    const messageBuilders = new MessageBuilders(waUploadToServer, relayMessage, config, sock);
+
     const waitForMsgMediaUpdate = bindWaitForEvent(ev, 'messages.media-update');
 
     registerSocketEndHandler(() => {
@@ -1089,6 +1092,7 @@ export const makeMessagesSocket = (config) => {
         issuePrivacyTokens,
         assertSessions,
         relayMessage,
+        messageBuilders,
         sendReceipt,
         sendReceipts,
         readMessages,
@@ -1152,8 +1156,35 @@ export const makeMessagesSocket = (config) => {
             const userJid = authState.creds.me.id;
             const { quoted } = options;
 
-            if (content.requestPaymentMessage || content.productMessage || content.interactiveButtons || content.interactiveMessage || content.albumMessage || content.album || content.eventMessage || content.pollResultMessage || content.groupStatusMessage) {
-                const msg = await generateWAMessageFromContent(jid, content, { quoted, userJid, upload: waUploadToServer });
+            const detectedType = messageBuilders.detectType(content);
+            if (detectedType) {
+                let processedContent;
+                switch (detectedType) {
+                    case 'PAYMENT':
+                        processedContent = await messageBuilders.handlePayment(content, quoted);
+                        break;
+                    case 'PRODUCT':
+                        processedContent = await messageBuilders.handleProduct(content, jid, quoted);
+                        break;
+                    case 'INTERACTIVE_BUTTONS':
+                        processedContent = await messageBuilders.handleInteractiveButtons(content, jid, quoted);
+                        break;
+                    case 'CAROUSEL':
+                        processedContent = await messageBuilders.handleCarousel(content, jid, quoted);
+                        break;
+                    case 'INTERACTIVE':
+                        processedContent = await messageBuilders.handleInteractive(content, jid, quoted);
+                        break;
+                    case 'ALBUM':
+                        return await messageBuilders.handleAlbum(content, jid, quoted);
+                    case 'EVENT':
+                        return await messageBuilders.handleEvent(content, jid, quoted);
+                    case 'POLL_RESULT':
+                        return await messageBuilders.handlePollResult(content, jid, quoted);
+                    case 'GROUP_STORY':
+                        return await messageBuilders.handleGroupStory(content, jid, quoted, options);
+                }
+                const msg = await generateWAMessageFromContent(jid, processedContent, { quoted, userJid, upload: waUploadToServer });
                 await relayMessage(jid, msg.message, { messageId: msg.key.id });
                 return msg;
             }
