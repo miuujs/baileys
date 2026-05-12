@@ -44,15 +44,15 @@ Use at your own discretion. Do not spam people with this. We discourage any stal
 ## Installation
 
 ```bash
+npm install github:miuujs/baileys
+```
+
+Or clone for development:
+
+```bash
 git clone https://github.com/miuujs/baileys
 cd baileys
 npm install
-```
-
-Or add directly to your project:
-
-```bash
-npm install github:miuujs/baileys
 ```
 
 This fork is ESM-only. Ensure your `package.json` contains `"type": "module"`.
@@ -107,18 +107,16 @@ startBot();
 
 ---
 
-## Features / Examples
+## Standard Messages
 
-Baileys supports all standard WhatsApp message types via `sock.sendMessage(jid, content, options)`.
+Basic message types supported via `sock.sendMessage(jid, content, options)`.
 
 ### Text
-
 ```js
 await sock.sendMessage(jid, { text: 'Hello World!' });
 ```
 
 ### Text with Mention
-
 ```js
 await sock.sendMessage(jid, {
   text: 'Hello @628xxx!',
@@ -127,7 +125,6 @@ await sock.sendMessage(jid, {
 ```
 
 ### Image
-
 ```js
 await sock.sendMessage(jid, {
   image: { url: './photo.jpg' },
@@ -136,7 +133,6 @@ await sock.sendMessage(jid, {
 ```
 
 ### Video
-
 ```js
 await sock.sendMessage(jid, {
   video: { url: './video.mp4' },
@@ -146,7 +142,6 @@ await sock.sendMessage(jid, {
 ```
 
 ### Audio / Voice Note
-
 ```js
 await sock.sendMessage(jid, {
   audio: { url: './audio.ogg' },
@@ -156,7 +151,6 @@ await sock.sendMessage(jid, {
 ```
 
 ### Sticker
-
 ```js
 await sock.sendMessage(jid, {
   sticker: { url: './sticker.webp' }
@@ -164,7 +158,6 @@ await sock.sendMessage(jid, {
 ```
 
 ### Document
-
 ```js
 await sock.sendMessage(jid, {
   document: { url: './file.pdf' },
@@ -174,7 +167,6 @@ await sock.sendMessage(jid, {
 ```
 
 ### Location
-
 ```js
 await sock.sendMessage(jid, {
   location: {
@@ -186,7 +178,6 @@ await sock.sendMessage(jid, {
 ```
 
 ### Contact
-
 ```js
 await sock.sendMessage(jid, {
   contacts: {
@@ -199,7 +190,6 @@ await sock.sendMessage(jid, {
 ```
 
 ### Reaction
-
 ```js
 await sock.sendMessage(jid, {
   react: { key: msg.key, text: '\u2764\uFE0F' }
@@ -207,7 +197,6 @@ await sock.sendMessage(jid, {
 ```
 
 ### Poll
-
 ```js
 await sock.sendMessage(jid, {
   poll: {
@@ -219,7 +208,6 @@ await sock.sendMessage(jid, {
 ```
 
 ### Forward Message
-
 ```js
 await sock.sendMessage(jid, {
   forward: msg,
@@ -229,13 +217,11 @@ await sock.sendMessage(jid, {
 ```
 
 ### Delete Message
-
 ```js
 await sock.sendMessage(jid, { delete: msg.key });
 ```
 
 ### Edit Message
-
 ```js
 await sock.sendMessage(jid, {
   text: 'Edited content',
@@ -243,13 +229,18 @@ await sock.sendMessage(jid, {
 });
 ```
 
+### Disappearing Messages
+```js
+await sock.sendMessage(jid, { disappearingMessagesInChat: 86400 });
+```
+
 ---
 
-## Interactive Messages
+## Advanced Messages
+
+These message types are auto-detected and processed by the internal `MessageBuilders` system when passed through `sendMessage()`.
 
 ### Native Flow Buttons
-
-Send interactive buttons with quick replies, URLs, and copy-to-clipboard actions.
 
 ```js
 await sock.sendMessage(jid, {
@@ -284,6 +275,24 @@ await sock.sendMessage(jid, {
   }
 });
 ```
+
+### Button Types Reference
+
+| name | buttonParamsJson fields | Description |
+| ---- | ----------------------- | ----------- |
+| `quick_reply` | `display_text`, `id` | Sends the `id` back as a message |
+| `cta_url` | `display_text`, `url` | Opens a URL when tapped |
+| `cta_copy` | `display_text`, `copy_code` | Copies text to clipboard |
+| `single_select` | `title`, `sections` | Shows a list/select menu |
+| `call_permission_request` | `display_text`, `id` | Requests call permission |
+
+### Button Features
+
+| Feature | Field | Description |
+| ------- | ----- | ----------- |
+| Limited Time Offer | `limited_time_offer_seconds` | Shows countdown timer on button |
+| Bottom Sheet | `bottom_sheet` | Renders options as a bottom sheet |
+| Tap Target Config | `tap_target_configuration` | Custom tap target behavior |
 
 ### List Menu (single_select)
 
@@ -359,23 +368,134 @@ await sock.sendMessage(jid, {
 });
 ```
 
-### Interactive Message with Image
+### Album Message
+
+Send multiple images/videos as a grouped album:
 
 ```js
 await sock.sendMessage(jid, {
-  interactiveMessage: {
-    title: 'Special Offer',
-    footer: 'Limited time',
-    buttons: [
-      {
-        name: 'quick_reply',
-        buttonParamsJson: JSON.stringify({ display_text: 'Buy Now', id: '.buy' })
-      }
-    ],
-    header: 'Promo',
-    image: { url: 'https://example.com/banner.jpg' }
+  albumMessage: [
+    { image: { url: './photo1.jpg' }, caption: 'Photo 1' },
+    { image: { url: './photo2.jpg' }, caption: 'Photo 2' },
+    { video: { url: './video.mp4' }, caption: 'Video' }
+  ]
+});
+```
+
+### Event Message
+
+```js
+await sock.sendMessage(jid, {
+  eventMessage: {
+    name: 'Community Meetup',
+    description: 'Join us for the monthly meetup!',
+    startTime: Date.now() + 86400000,
+    location: { degreesLatitude: -6.2, degreesLongitude: 106.8, name: 'Jakarta' }
   }
 });
+```
+
+### Poll Result
+
+```js
+await sock.sendMessage(jid, {
+  pollResultMessage: {
+    name: 'Favorite Language?',
+    pollVotes: [
+      { optionName: 'JavaScript', optionVoteCount: 42 },
+      { optionName: 'Python', optionVoteCount: 38 },
+      { optionName: 'Go', optionVoteCount: 15 }
+    ]
+  }
+});
+```
+
+### Product Message
+
+```js
+const { imageMessage } = await prepareWAMessageMedia(
+  { image: { url: 'https://example.com/product.jpg' } },
+  { upload: sock.waUploadToServer }
+);
+
+await sock.sendMessage(jid, {
+  productMessage: {
+    title: 'Product Name',
+    description: 'Product description',
+    thumbnail: { url: 'https://example.com/product.jpg' },
+    productId: 'P001',
+    retailerId: 'YELIB',
+    url: 'https://example.com/product',
+    body: 'Latest product!',
+    footer: 'yelib store',
+    buttons: [{ name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: 'Buy Now', id: '.buy' }) }],
+    priceAmount1000: 50000000,
+    currencyCode: 'IDR'
+  }
+});
+```
+
+### Payment Request
+
+```js
+await sock.sendMessage(jid, {
+  requestPaymentMessage: {
+    expiryTimestamp: Math.floor(Date.now() / 1000) + 86400,
+    amount1000: 50000,
+    currencyCodeIso4217: 'IDR',
+    requestFrom: '628xxx@s.whatsapp.net',
+    noteMessage: {
+      extendedTextMessage: { text: 'Payment for order #123' }
+    },
+    background: { id: 'DEFAULT', placeholderArgb: 0xfff0f0f0 }
+  }
+});
+```
+
+### Group Status Message
+
+```js
+await sock.sendMessage(jid, {
+  groupStatusMessage: {
+    image: { url: './photo.jpg' },
+    caption: 'Group status update!'
+  }
+});
+```
+
+### Interactive Buttons (via interactiveButtons)
+
+```js
+await sock.sendMessage(jid, {
+  interactiveButtons: [{
+    name: 'quick_reply',
+    buttonParamsJson: { display_text: 'Yes', id: '.yes' }
+  }],
+  text: 'Do you agree?',
+  footer: 'yelib',
+  title: 'Confirmation'
+});
+```
+
+---
+
+## Status WhatsApp
+
+Send status updates with mentions:
+
+```js
+await sock.messageBuilders.sendStatusWhatsApp(
+  { text: 'Hello Status!', backgroundColor: '#FF5733', font: 1 },
+  ['628xxx@s.whatsapp.net']
+);
+```
+
+With media:
+```js
+await sock.messageBuilders.sendStatusWhatsApp(
+  { image: { url: './photo.jpg' }, caption: 'My story' },
+  ['628xxx@s.whatsapp.net', '1234567890@g.us']
+);
 ```
 
 ---
@@ -495,8 +615,6 @@ await sock.sendLink(
 
 ### SubMessage Types Reference
 
-Each rich response message consists of an array of submessages. Each submessage has a `messageType` and a corresponding payload field:
-
 | messageType | Name | Payload Field | Description |
 | ----------- | ---- | ------------- | ----------- |
 | 0 | UNKNOWN | -- | Unknown/empty submessage |
@@ -557,215 +675,156 @@ if (captured) {
 
 ---
 
-## Interactive Messages
+## Newsletter API
 
-### Native Flow Buttons (via sendMessage)
+Full newsletter management via MEX GraphQL queries and direct protocol nodes. All methods are available on the socket object.
 
+### Management
+
+**Create Newsletter:**
 ```js
-await sock.sendMessage(jid, {
-  interactiveMessage: {
-    title: 'Welcome!',
-    footer: 'yelib',
-    buttons: [
-      {
-        name: 'quick_reply',
-        buttonParamsJson: JSON.stringify({ display_text: 'Menu', id: '.menu' })
-      },
-      {
-        name: 'cta_url',
-        buttonParamsJson: JSON.stringify({ display_text: 'Website', url: 'https://example.com' })
-      },
-      {
-        name: 'cta_copy',
-        buttonParamsJson: JSON.stringify({ display_text: 'Copy Code', copy_code: 'YELIB2024' })
-      }
-    ],
-    header: 'Choose an option',
-    image: { url: 'https://example.com/banner.jpg' }
-  }
-});
+const result = await sock.newsletterCreate('My Channel', 'Channel description');
+// { id, name, creation_time, description, invite, subscribers, verification, picture, mute_state }
 ```
 
-### Button Types Reference
-
-| name | buttonParamsJson fields | Description |
-| ---- | ----------------------- | ----------- |
-| `quick_reply` | `display_text` (string), `id` (string) | Simple reply button, sends the `id` back as a message |
-| `cta_url` | `display_text` (string), `url` (string) | Opens a URL when tapped |
-| `cta_copy` | `display_text` (string), `copy_code` (string) | Copies text to clipboard |
-| `single_select` | `title` (string), `sections` (array of `{ title, rows: [{ title, id, description? }] }`) | Shows a list/select menu with sections and rows |
-| `call_permission_request` | `display_text` (string), `id` (string) | Requests call permission |
-
-### Button Features
-
-Each button can include additional native flow features via `buttonParamsJson`:
-
-| Feature | Field | Description |
-| ------- | ----- | ----------- |
-| Limited Time Offer | `limited_time_offer_seconds` (number) | Shows countdown timer on button |
-| Bottom Sheet | `bottom_sheet` (boolean) | Renders button options as a bottom sheet |
-| Tap Target Config | `tap_target_configuration` (object) | Custom tap target behavior |
-
-Example with advanced features:
-
+**Get Metadata:**
 ```js
-{
-  name: 'quick_reply',
-  buttonParamsJson: JSON.stringify({
-    display_text: 'Claim Offer',
-    id: '.claim',
-    limited_time_offer_seconds: 3600,
-    bottom_sheet: true
-  })
-}
+// By invite code
+const meta = await sock.newsletterMetadata('invite', 'abc123');
+// By newsletter ID
+const meta = await sock.newsletterMetadata('id', '1234567890@newsletter');
 ```
 
-### List Menu
-
+**Get Subscribers Count:**
 ```js
-await sock.sendMessage(jid, {
-  interactiveMessage: {
-    title: 'Select Category',
-    footer: 'yelib',
-    buttons: [{
-      name: 'single_select',
-      buttonParamsJson: JSON.stringify({
-        title: 'Menu',
-        sections: [
-          { title: 'Games', rows: [{ title: 'Quiz', id: '.quiz' }, { title: 'Guess', id: '.guess' }] },
-          { title: 'Tools', rows: [{ title: 'Sticker', id: '.sticker' }, { title: 'TTS', id: '.tts' }] }
-        ]
-      })
-    }],
-    header: 'Bot Menu'
-  }
-});
+const count = await sock.newsletterSubscribers('1234567890@newsletter');
 ```
 
-### Carousel
-
+**Delete Newsletter:**
 ```js
-await sock.sendMessage(jid, {
-  interactiveMessage: {
-    title: 'Products',
-    footer: 'yelib',
-    carouselMessage: {
-      cards: [
-        {
-          body: { text: 'Product A - Rp50,000' },
-          footer: { text: '10% off' },
-          header: { title: 'Product A' },
-          nativeFlowMessage: { buttons: [{ name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: 'Buy', id: '.buy_a' }) }] }
-        },
-        {
-          body: { text: 'Product B - Rp75,000' },
-          footer: { text: '15% off' },
-          header: { title: 'Product B' },
-          nativeFlowMessage: { buttons: [{ name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: 'Buy', id: '.buy_b' }) }] }
-        }
-      ],
-      messageVersion: 1
-    }
-  }
-});
+await sock.newsletterDelete('1234567890@newsletter');
 ```
 
-### Album Message
+### Follow / Unfollow / Mute
 
 ```js
-await sock.sendMessage(jid, {
-  albumMessage: [
-    { image: { url: './photo1.jpg' }, caption: 'Photo 1' },
-    { image: { url: './photo2.jpg' }, caption: 'Photo 2' },
-    { video: { url: './video.mp4' }, caption: 'Video' }
-  ]
-});
+await sock.newsletterFollow('1234567890@newsletter');
+await sock.newsletterUnfollow('1234567890@newsletter');
+await sock.newsletterMute('1234567890@newsletter');
+await sock.newsletterUnmute('1234567890@newsletter');
 ```
 
-### Event Message
+### Settings
 
 ```js
-await sock.sendMessage(jid, {
-  eventMessage: {
-    name: 'Community Meetup',
-    description: 'Join us for the monthly meetup!',
-    startTime: Date.now() + 86400000,
-    location: { degreesLatitude: -6.2, degreesLongitude: 106.8, name: 'Jakarta' }
-  }
-});
+await sock.newsletterUpdateName('1234567890@newsletter', 'New Name');
+await sock.newsletterUpdateDescription('1234567890@newsletter', 'New description');
+await sock.newsletterUpdatePicture('1234567890@newsletter', { url: './photo.jpg' });
+await sock.newsletterRemovePicture('1234567890@newsletter');
 ```
 
-### Poll Result
+### Messaging
 
+**Send Message:**
 ```js
-await sock.sendMessage(jid, {
-  pollResultMessage: {
-    name: 'Favorite Language?',
-    pollVotes: [
-      { optionName: 'JavaScript', optionVoteCount: 42 },
-      { optionName: 'Python', optionVoteCount: 38 },
-      { optionName: 'Go', optionVoteCount: 15 }
-    ]
-  }
-});
+await sock.sendMessage('1234567890@newsletter', { text: 'Hello subscribers!' });
 ```
 
-### Product Message
-
+**React to Message:**
 ```js
-const { imageMessage } = await prepareWAMessageMedia(
-  { image: { url: 'https://example.com/product.jpg' } },
-  { upload: sock.waUploadToServer }
-);
-
-await sock.sendMessage(jid, {
-  viewOnceMessage: {
-    message: {
-      interactiveMessage: {
-        body: { text: 'Latest product!' },
-        footer: { text: 'yelib store' },
-        header: {
-          title: 'Product Name',
-          hasMediaAttachment: true,
-          productMessage: {
-            product: {
-              productImage: imageMessage,
-              productId: 'P001',
-              title: 'Product Name',
-              description: 'Product description',
-              currencyCode: 'IDR',
-              priceAmount1000: 50000000,
-              retailerId: 'YELIB',
-              url: 'https://example.com/product',
-              productImageCount: 1
-            },
-            businessOwnerJid: '0@s.whatsapp.net'
-          }
-        },
-        nativeFlowMessage: {
-          buttons: [{ name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: 'Buy Now', id: '.buy_p001' }) }]
-        }
-      }
-    }
-  }
-});
+await sock.newsletterReactMessage('1234567890@newsletter', serverId, '\u2764\uFE0F');
+await sock.newsletterReactMessage('1234567890@newsletter', serverId, null); // remove reaction
 ```
 
-### Payment Request
+**Fetch Messages:**
+```js
+const messages = await sock.newsletterFetchMessages('1234567890@newsletter', 10);
+const older = await sock.newsletterFetchMessages('1234567890@newsletter', 10, sinceTimestamp);
+const after = await sock.newsletterFetchMessages('1234567890@newsletter', 10, undefined, afterServerId);
+```
+
+**Subscribe to Live Updates:**
+```js
+const result = await sock.subscribeNewsletterUpdates('1234567890@newsletter');
+// { duration } or null
+```
+
+### Admin
 
 ```js
-await sock.sendMessage(jid, {
-  requestPaymentMessage: {
-    expiryTimestamp: Math.floor(Date.now() / 1000) + 86400,
-    amount1000: 50000,
-    currencyCodeIso4217: 'IDR',
-    requestFrom: '628xxx@s.whatsapp.net',
-    noteMessage: {
-      extendedTextMessage: { text: 'Payment for order #123' }
-    },
-    background: { id: 'DEFAULT', placeholderArgb: 0xfff0f0f0 }
-  }
-});
+const count = await sock.newsletterAdminCount('1234567890@newsletter');
+await sock.newsletterChangeOwner('1234567890@newsletter', '628xxx@s.whatsapp.net');
+await sock.newsletterDemote('1234567890@newsletter', '628xxx@s.whatsapp.net');
+```
+
+### Events
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `newsletter.reaction` | `{ id, server_id, reaction: { code, count } }` | Newsletter message reaction |
+| `newsletter.view` | `{ id, server_id, count }` | Newsletter view count |
+| `newsletter-settings.update` | `{ id, update: { name?, description? } }` | Newsletter settings changed |
+| `newsletter-participants.update` | `{ id, author, user, action, new_role }` | Admin promote/demote |
+
+---
+
+## Community API
+
+### Create Community
+
+```js
+const community = await sock.communityCreate('My Community', { description: '...' });
+```
+
+### Create Sub-group in Community
+
+```js
+const group = await sock.communityCreateGroup(communityId, 'Sub Group');
+```
+
+### Link / Unlink Sub-group
+
+```js
+await sock.communityLinkSubGroup(communityId, subgroupJid);
+await sock.communityUnlinkSubGroup(communityId, subgroupJid);
+```
+
+### Leave Community
+
+```js
+await sock.communityLeave(communityId);
+```
+
+### Membership Approval
+
+```js
+await sock.communityAcceptRequest(communityId, requesterJid);
+await sock.communityRejectRequest(communityId, requesterJid);
+```
+
+### Invite Codes
+
+```js
+const code = await sock.communityInviteCode(communityId);
+await sock.communityRevokeInviteCode(communityId);
+```
+
+---
+
+## Socket Architecture
+
+Each socket layer extends the previous via composition:
+
+```
+makeSocket -> WebSocket + Noise protocol + pre-key management
+  makeChatsSocket -> App state sync + chat modifications + profile
+    makeGroupsSocket -> Group CRUD + participant management
+      makeNewsletterSocket -> Newsletter follow/unfollow/metadata
+        makeMessagesSendSocket -> Message sending + relay + MessageBuilders
+          makeMessagesRecvSocket -> Message receiving + decryption + retry
+            makeBusinessSocket -> Product catalog + business profile
+              makeCommunitiesSocket -> Community CRUD + sub-groups
+                makeWASocket <- Top-level export
 ```
 
 ---
@@ -798,11 +857,11 @@ All features below were verified from the source code.
 | 18 | AI Rich Response -- Rich Message (Custom Submessages) | No | Yes | `Utils/rich-messages.js:190-193` |
 | 19 | Latex Rendering (RichSubMessageType) | No | Yes | `Utils/rich-messages.js:35` |
 | 20 | Event Message + Encrypted Response | No | Yes | `Utils/messages.js:410-429`, `Utils/process-message.js:362-408` |
-| 21 | Poll Result Message | No | Yes | `Socket/messages-send.js:1155` |
+| 21 | Poll Result Message | No | Yes | `Socket/message-builders.js` |
 | 22 | Poll Creation V3 (single-select) | No | Yes | `Utils/messages.js:455-462` |
-| 23 | Product Message (viewOnce + interactive) | No | Yes | `Utils/messages.js:397-406` |
-| 24 | Payment Request | No | Yes | `Socket/messages-send.js:1155` |
-| 25 | Group Status Message / V2 | No | Yes | `Utils/messages.js:657-658` |
+| 23 | Product Message (viewOnce + interactive) | No | Yes | `Socket/message-builders.js` |
+| 24 | Payment Request | No | Yes | `Socket/message-builders.js` |
+| 25 | Group Status Message / V2 | No | Yes | `Utils/messages.js:657-658`, `Socket/message-builders.js` |
 | 26 | Status Mentions (proto field) | No | Yes | `WAProto/WAProto.proto:5222` |
 | 27 | Button Features (limited time offer, bottom sheet, tap target) | No | Yes | `Socket/messages-send.js` |
 | 28 | Capture & Resend Unified Response | No | Yes | `Utils/rich-messages.js:302-313` |
@@ -810,41 +869,30 @@ All features below were verified from the source code.
 | 30 | Full LID <-> PN Mapping System | No | Yes | `Signal/lid-mapping.js`, `WAUSync/Protocols/UsyncLIDProtocol.js` |
 | 31 | LID Session Migration | No | Yes | `Signal/libsignal.js:237-351` |
 | 32 | LID/PN Dual Addressing | No | Yes | `Utils/decode-wa-message.js:60-78` |
-| 33 | MessageRetryManager | No | Yes | `Utils/message-retry-manager.js` |
-| 34 | Newsletter CRUD via MEX GraphQL | No | Yes | `Socket/newsletter.js`, `Socket/mex.js` |
-| 35 | Group Member Labeling | No | Yes | `Socket/messages-send.js:135-156` |
-| 36 | On-demand History Sync | No | Yes | `Socket/messages-recv.js:47-64` |
-| 37 | Media Re-upload (updateMediaMessage) | No | Yes | `Socket/messages-send.js:1104-1150` |
-| 38 | Peer Data Operation Messages | No | Yes | `Socket/messages-send.js:374-402` |
-| 39 | Reporting Token System | No | Yes | `Utils/reporting-utils.js` |
-| 40 | TC Token System (Trusted Contact) | No | Yes | `Utils/tc-token-utils.js` |
-| 41 | Privacy Token Handling | No | Yes | `Socket/messages-recv.js:1084-1104` |
-| 42 | Reachout Timelock Enforcement | No | Yes | `Types/State.js:10-29`, `Socket/messages-recv.js:175-211` |
-| 43 | Message Capping System | No | Yes | `Socket/messages-recv.js:213-223` |
-| 44 | Identity Change Handler | No | Yes | `Utils/identity-change-handler.js` |
-| 45 | WAM Analytics/Metrics Encoding | No | Yes | `WAM/` (BinaryInfo, encode, constants) |
-| 46 | Bot Profile USync Protocol | No | Yes | `WAUSync/Protocols/UsyncBotProfileProtocol.js` |
+| 33 | MessageRetryManager (base key collision detection) | No | Yes | `Utils/message-retry-manager.js` |
+| 34 | Newsletter Create + Delete via MEX GraphQL | No | Yes | `Socket/newsletter.js`, `Socket/mex.js` |
+| 35 | Newsletter Admin (Change Owner, Demote, Admin Count) | No | Yes | `Socket/newsletter.js` |
+| 36 | Newsletter Settings (Name, Description, Picture, Mute) | No | Yes | `Socket/newsletter.js` |
+| 37 | Newsletter React + Fetch Messages | No | Yes | `Socket/newsletter.js:106` |
+| 38 | Newsletter Live Updates Subscription | No | Yes | `Socket/newsletter.js:151` |
+| 39 | Newsletter Subscribers Count | No | Yes | `Socket/newsletter.js:65` |
+| 40 | Group Member Labeling | No | Yes | `Socket/messages-send.js:135-156` |
+| 41 | On-demand History Sync | No | Yes | `Socket/messages-recv.js:47-64` |
+| 42 | Media Re-upload (updateMediaMessage) | No | Yes | `Socket/messages-send.js:1104-1150` |
+| 43 | Peer Data Operation Messages | No | Yes | `Socket/messages-send.js:374-402` |
+| 44 | Reporting Token System | No | Yes | `Utils/reporting-utils.js` |
+| 45 | TC Token System (Trusted Contact) | No | Yes | `Utils/tc-token-utils.js` |
+| 46 | Privacy Token Handling | No | Yes | `Socket/messages-recv.js:1084-1104` |
+| 47 | Reachout Timelock Enforcement | No | Yes | `Types/State.js:10-29`, `Socket/messages-recv.js:175-211` |
+| 48 | Message Capping System | No | Yes | `Socket/messages-recv.js:213-223` |
+| 49 | Identity Change Handler | No | Yes | `Utils/identity-change-handler.js` |
+| 50 | WAM Analytics/Metrics Encoding | No | Yes | `WAM/` (BinaryInfo, encode, constants) |
+| 51 | Bot Profile USync Protocol | No | Yes | `WAUSync/Protocols/UsyncBotProfileProtocol.js` |
+| 52 | Status WhatsApp with Mentions | No | Yes | `Socket/message-builders.js` |
+| 53 | MessageBuilders System (auto type routing) | No | Yes | `Socket/message-builders.js` |
 
 > [!IMPORTANT]
 > Official Baileys refers to the original [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys) v7.
-> yelib (miuujs/baileys) is a fork that extends the original with 35+ additional features including interactive messages, album messages, AI rich response system, full LID mapping, event messages, payment support, newsletter GraphQL API, retry manager, and various security/privacy systems. All features listed above are verified from the source code.
+> yelib (miuujs/baileys) is a fork that extends the original with 40+ additional features including interactive messages, album messages, AI rich response system, full LID mapping, event messages, payment support, newsletter GraphQL API, retry manager, MessageBuilders system, and various security/privacy systems. All features listed above are verified from the source code.
 
 ---
-
-## Socket Architecture
-
-Each socket layer extends the previous via composition:
-
-```
-makeSocket -> WebSocket + Noise protocol + pre-key management
-  makeChatsSocket -> App state sync + chat modifications + profile
-    makeGroupsSocket -> Group CRUD + participant management
-      makeNewsletterSocket -> Newsletter follow/unfollow/metadata
-        makeMessagesSendSocket -> Message sending + relay
-          makeMessagesRecvSocket -> Message receiving + decryption
-            makeBusinessSocket -> Product catalog + business profile
-              makeCommunitiesSocket -> Community CRUD + sub-groups
-                makeWASocket <- Top-level export
-```
-
-
