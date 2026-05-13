@@ -51,6 +51,9 @@ export const makeNewsletterSocket = (config) => {
     };
     return {
         ...sock,
+        newsletterFetchAllSubscribe: async () => {
+            return executeWMexQuery({}, '6388546374527196', 'xwa2_newsletter_subscribed');
+        },
         newsletterCreate: async (name, description) => {
             const variables = {
                 input: {

@@ -25,10 +25,26 @@ const GO_KEYWORDS = new Set([
     'default', 'fallthrough'
 ]);
 
+const LUA_KEYWORDS = new Set([
+    'and', 'break', 'do', 'else', 'elseif', 'end', 'false', 'for', 'function',
+    'goto', 'if', 'in', 'local', 'nil', 'not', 'or', 'repeat', 'return',
+    'then', 'true', 'until', 'while'
+]);
+
+const BASH_KEYWORDS = new Set([
+    'if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'do', 'done',
+    'case', 'esac', 'function', 'return', 'exit', 'source', '.', 'export',
+    'local', 'readonly', 'unset', 'declare', 'typeset', 'alias', 'unalias',
+    'trap', 'break', 'continue', 'shift', 'wait', 'eval', 'exec', 'let',
+    'select', 'in', 'until', 'time', '[[', ']]'
+]);
+
 const LANGUAGE_KEYWORDS = {
     javascript: JS_KEYWORDS, typescript: JS_KEYWORDS, js: JS_KEYWORDS, ts: JS_KEYWORDS,
     python: PYTHON_KEYWORDS, py: PYTHON_KEYWORDS,
-    go: GO_KEYWORDS, golang: GO_KEYWORDS
+    go: GO_KEYWORDS, golang: GO_KEYWORDS,
+    lua: LUA_KEYWORDS,
+    bash: BASH_KEYWORDS, sh: BASH_KEYWORDS, shell: BASH_KEYWORDS
 };
 
 const CodeHighlightType = { DEFAULT: 0, KEYWORD: 1, METHOD: 2, STRING: 3, NUMBER: 4, COMMENT: 5 };
@@ -192,6 +208,114 @@ const generateRichMessageContent = (submessages, quoted) => {
     return { message: buildBotForwardedMessage(submessages, ctxInfo), messageId: generateMessageIDV2() };
 };
 
+const generateLatexContent = (quoted, options) => {
+    const { text, expressions, headerText, footer } = options;
+    const submessages = [];
+    if (headerText) {
+        submessages.push({ messageType: 2, messageText: headerText });
+    }
+    const latexExpressions = expressions.map((expr) => {
+        const entry = {
+            latexExpression: expr.latexExpression,
+            url: expr.url,
+            width: expr.width,
+            height: expr.height,
+        };
+        if (expr.fontHeight !== undefined) entry.fontHeight = expr.fontHeight;
+        if (expr.imageTopPadding !== undefined) entry.imageTopPadding = expr.imageTopPadding;
+        if (expr.imageLeadingPadding !== undefined) entry.imageLeadingPadding = expr.imageLeadingPadding;
+        if (expr.imageBottomPadding !== undefined) entry.imageBottomPadding = expr.imageBottomPadding;
+        if (expr.imageTrailingPadding !== undefined) entry.imageTrailingPadding = expr.imageTrailingPadding;
+        return entry;
+    });
+    submessages.push({
+        messageType: 8,
+        latexMetadata: {
+            text: text || '',
+            expressions: latexExpressions,
+        },
+    });
+    if (footer) {
+        submessages.push({ messageType: 2, messageText: footer });
+    }
+    const ctxInfo = buildRichContextInfo(quoted);
+    return {
+        message: buildBotForwardedMessage(submessages, ctxInfo),
+        messageId: generateMessageIDV2(),
+    };
+};
+
+const generateLatexImageContent = async (quoted, options, uploadFn, renderLatexToPng) => {
+    const { text, expressions, headerText, footer } = options;
+    const submessages = [];
+    if (headerText) {
+        submessages.push({ messageType: 2, messageText: headerText });
+    }
+    const latexExpressions = await Promise.all(
+        expressions.map(async (expr) => {
+            const { buffer, width, height } = await renderLatexToPng(expr.latexExpression);
+            const uploadResult = await uploadFn(buffer, 'image');
+            const imageUrl = uploadResult.url || uploadResult.directPath;
+            return {
+                latexExpression: expr.latexExpression,
+                url: imageUrl,
+                width,
+                height,
+            };
+        }),
+    );
+    submessages.push({
+        messageType: 8,
+        latexMetadata: {
+            text: text || '',
+            expressions: latexExpressions,
+        },
+    });
+    if (footer) {
+        submessages.push({ messageType: 2, messageText: footer });
+    }
+    const ctxInfo = buildRichContextInfo(quoted);
+    return {
+        message: buildBotForwardedMessage(submessages, ctxInfo),
+        messageId: generateMessageIDV2(),
+    };
+};
+
+const generateLatexInlineImageContent = async (quoted, options, uploadFn, renderLatexToPng) => {
+    const { text, expressions, headerText, footer } = options;
+    const submessages = [];
+    if (headerText) {
+        submessages.push({ messageType: 2, messageText: headerText });
+    }
+    if (text) {
+        submessages.push({ messageType: 2, messageText: text });
+    }
+    for (const expr of expressions) {
+        const { buffer, width, height } = await renderLatexToPng(expr.latexExpression);
+        const uploadResult = await uploadFn(buffer, 'image');
+        const imageUrl = uploadResult.url || uploadResult.directPath;
+        submessages.push({
+            messageType: 3,
+            imageMetadata: {
+                imageUrl: {
+                    imagePreviewUrl: imageUrl,
+                    imageHighResUrl: imageUrl,
+                },
+                imageText: expr.latexExpression,
+                alignment: 2,
+            },
+        });
+    }
+    if (footer) {
+        submessages.push({ messageType: 2, messageText: footer });
+    }
+    const ctxInfo = buildRichContextInfo(quoted);
+    return {
+        message: buildBotForwardedMessage(submessages, ctxInfo),
+        messageId: generateMessageIDV2(),
+    };
+};
+
 const toTableMetadataV2 = (arr) => {
     if (!Array.isArray(arr) || arr.length === 0) throw new Error('Input must be a non-empty array');
     const [title, headerStr, ...rest] = arr;
@@ -318,5 +442,8 @@ export {
     generateCodeBlockContent, generateCodeBlockContentV2,
     generateLinkContent, generateLinkContentV2,
     generateRichMessageContent, generateUnifiedResponseContent, captureUnifiedResponse,
-    CodeHighlightType, RichSubMessageType, LANGUAGE_KEYWORDS
+    generateLatexContent, generateLatexImageContent, generateLatexInlineImageContent,
+    toTableMetadataV2,
+    CodeHighlightType, RichSubMessageType,
+    JS_KEYWORDS, PYTHON_KEYWORDS, GO_KEYWORDS, LUA_KEYWORDS, BASH_KEYWORDS, LANGUAGE_KEYWORDS
 };

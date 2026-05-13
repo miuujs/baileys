@@ -4,7 +4,7 @@ import { proto } from '../../WAProto/index.js';
 import { DEFAULT_CACHE_TTLS, WA_DEFAULT_EPHEMERAL } from '../Defaults/index.js';
 import { aggregateMessageKeysNotFromMe, assertMediaContent, assertMeId, bindWaitForEvent, decryptMediaRetryData, DEF_MEDIA_HOST, encodeNewsletterMessage, encodeSignedDeviceIdentity, encodeWAMessage, encryptMediaRetryRequest, extractDeviceJids, generateMessageIDV2, generateParticipantHashV2, generateWAMessage, generateWAMessageFromContent, getStatusCodeForMediaRetry, getUrlFromDirectPath, getWAUploadToServer, MessageRetryManager, normalizeMessageContent, parseAndInjectE2ESessions, unixTimestampSeconds } from '../Utils/index.js';
 import { getUrlInfo } from '../Utils/link-preview.js';
-import { generateTableContent, generateTableContentV2, generateListContent, generateCodeBlockContent, generateCodeBlockContentV2, generateLinkContent, generateLinkContentV2, generateRichMessageContent, generateUnifiedResponseContent, captureUnifiedResponse } from '../Utils/rich-messages.js';
+import { generateTableContent, generateTableContentV2, generateListContent, generateCodeBlockContent, generateCodeBlockContentV2, generateLinkContent, generateLinkContentV2, generateRichMessageContent, generateUnifiedResponseContent, captureUnifiedResponse, generateLatexContent, generateLatexImageContent, generateLatexInlineImageContent } from '../Utils/rich-messages.js';
 import { makeKeyedMutex, makeMutex } from '../Utils/make-mutex.js';
 import { getMessageReportingToken, shouldIncludeReportingToken } from '../Utils/reporting-utils.js';
 import { buildMergedTcTokenIndexWrite, isTcTokenExpired, resolveIssuanceJid, resolveTcTokenJid, shouldSendNewTcToken, storeTcTokensFromIqResult } from '../Utils/tc-token-utils.js';
@@ -1289,6 +1289,11 @@ export const makeMessagesSocket = (config) => {
                     });
                 }
 
+                additionalNodes.push({
+                    tag: 'bot',
+                    attrs: { biz_bot: '1' }
+                });
+
                 await relayMessage(jid, fullMsg.message, {
                     messageId: fullMsg.key.id,
                     useCachedGroupMetadata: options.useCachedGroupMetadata,
@@ -1337,6 +1342,21 @@ export const makeMessagesSocket = (config) => {
         },
         sendLinkV2: async (jid, text, links, quoted, options = {}) => {
             const { message, messageId } = generateLinkContentV2(text, links, quoted, options);
+            await relayMessage(jid, message, { messageId });
+            return { message, messageId };
+        },
+        sendLatex: async (jid, quoted, options) => {
+            const { message, messageId } = generateLatexContent(quoted, options);
+            await relayMessage(jid, message, { messageId });
+            return { message, messageId };
+        },
+        sendLatexImage: async (jid, quoted, options, renderLatexToPng, uploadFn) => {
+            const { message, messageId } = await generateLatexImageContent(quoted, options, uploadFn, renderLatexToPng);
+            await relayMessage(jid, message, { messageId });
+            return { message, messageId };
+        },
+        sendLatexInlineImage: async (jid, quoted, options, renderLatexToPng, uploadFn) => {
+            const { message, messageId } = await generateLatexInlineImageContent(quoted, options, uploadFn, renderLatexToPng);
             await relayMessage(jid, message, { messageId });
             return { message, messageId };
         },

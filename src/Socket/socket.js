@@ -330,7 +330,15 @@ export const makeSocket = (config) => {
     };
 
     let uploadPreKeysPromise = null;
-    const uploadPreKeys = async (count = MIN_PREKEY_COUNT) => {
+    let lastUploadTime = 0;
+    const uploadPreKeys = async (count = MIN_PREKEY_COUNT, retryCount = 0) => {
+        if (retryCount === 0) {
+            const timeSinceLastUpload = Date.now() - lastUploadTime;
+            if (timeSinceLastUpload < MIN_UPLOAD_INTERVAL) {
+                logger.debug(`Skipping upload, only ${timeSinceLastUpload}ms since last upload`);
+                return;
+            }
+        }
         if (uploadPreKeysPromise) {
             logger.debug('Pre-key upload already in progress, waiting for completion');
             await uploadPreKeysPromise;
@@ -349,6 +357,7 @@ export const makeSocket = (config) => {
 
             try {
                 await query(node);
+                lastUploadTime = Date.now();
                 logger.info({ count }, 'uploaded pre-keys successfully');
             }
             catch (uploadError) {
