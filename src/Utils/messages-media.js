@@ -621,7 +621,7 @@ const uploadMedia = async (params, logger) => {
 };
 
 export const getWAUploadToServer = ({ customUploadHosts, fetchAgent, logger, options }, refreshMediaConn) => {
-    return async (filePath, { mediaType, fileEncSha256B64, timeoutMs }) => {
+    return async (filePath, { mediaType, fileEncSha256B64, newsletter, timeoutMs }) => {
         let uploadInfo = await refreshMediaConn(false);
         let urls;
         const hosts = [...customUploadHosts, ...uploadInfo.hosts];
@@ -637,10 +637,14 @@ export const getWAUploadToServer = ({ customUploadHosts, fetchAgent, logger, opt
             'Content-Type': 'application/octet-stream',
             Origin: DEFAULT_ORIGIN
         };
+        let mediaPath = MEDIA_PATH_MAP[mediaType];
+        if (newsletter && mediaPath) {
+            mediaPath = mediaPath.replace('/mms/', '/newsletter/newsletter-');
+        }
         for (const { hostname } of hosts) {
             logger.debug(`uploading to "${hostname}"`);
             const auth = encodeURIComponent(uploadInfo.auth);
-            const url = `https://${hostname}${MEDIA_PATH_MAP[mediaType]}/${fileEncSha256B64}?auth=${auth}&token=${fileEncSha256B64}`;
+            const url = `https://${hostname}${mediaPath}/${fileEncSha256B64}?auth=${auth}&token=${fileEncSha256B64}`;
             let result;
             try {
                 result = await uploadMedia({

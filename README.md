@@ -877,23 +877,26 @@ All features below were verified from the source code.
 | 38 | Newsletter React + Fetch Messages | No | Yes | `Socket/newsletter.js:106` |
 | 39 | Newsletter Live Updates Subscription | No | Yes | `Socket/newsletter.js:151` |
 | 40 | Newsletter Subscribers Count | No | Yes | `Socket/newsletter.js:65` |
-| 41 | Group Member Labeling | No | Yes | `Socket/messages-send.js:135-156` |
-| 42 | On-demand History Sync | No | Yes | `Socket/messages-recv.js:47-64` |
-| 43 | Media Re-upload (updateMediaMessage) | No | Yes | `Socket/messages-send.js:1104-1150` |
-| 44 | Peer Data Operation Messages | No | Yes | `Socket/messages-send.js:374-402` |
-| 45 | Reporting Token System | No | Yes | `Utils/reporting-utils.js` |
-| 46 | TC Token System (Trusted Contact) | No | Yes | `Utils/tc-token-utils.js` |
-| 47 | Privacy Token Handling | No | Yes | `Socket/messages-recv.js:1084-1104` |
-| 48 | Reachout Timelock Enforcement | No | Yes | `Types/State.js:10-29`, `Socket/messages-recv.js:175-211` |
-| 49 | Message Capping System | No | Yes | `Socket/messages-recv.js:213-223` |
-| 50 | Identity Change Handler | No | Yes | `Utils/identity-change-handler.js` |
-| 51 | WAM Analytics/Metrics Encoding | No | Yes | `WAM/` (BinaryInfo, encode, constants) |
-| 52 | Bot Profile USync Protocol | No | Yes | `WAUSync/Protocols/UsyncBotProfileProtocol.js` |
-| 53 | Status WhatsApp with Mentions | No | Yes | `Socket/message-builders.js` |
-| 54 | MessageBuilders System (auto type routing) | No | Yes | `Socket/message-builders.js` |
+| 41 | **Newsletter Media (Image/Video/Audio)** | No | **Yes** | `Utils/messages-media.js:648`, `Utils/messages.js:132-181`, `Socket/messages-send.js:647-649` |
+| 42 | Group Member Labeling | No | Yes | `Socket/messages-send.js:135-156` |
+| 43 | On-demand History Sync | No | Yes | `Socket/messages-recv.js:47-64` |
+| 44 | Media Re-upload (updateMediaMessage) | No | Yes | `Socket/messages-send.js:1104-1150` |
+| 45 | Peer Data Operation Messages | No | Yes | `Socket/messages-send.js:374-402` |
+| 46 | Reporting Token System | No | Yes | `Utils/reporting-utils.js` |
+| 47 | TC Token System (Trusted Contact) | No | Yes | `Utils/tc-token-utils.js` |
+| 48 | Privacy Token Handling | No | Yes | `Socket/messages-recv.js:1084-1104` |
+| 49 | Reachout Timelock Enforcement | No | Yes | `Types/State.js:10-29`, `Socket/messages-recv.js:175-211` |
+| 50 | Message Capping System | No | Yes | `Socket/messages-recv.js:213-223` |
+| 51 | Identity Change Handler | No | Yes | `Utils/identity-change-handler.js` |
+| 52 | WAM Analytics/Metrics Encoding | No | Yes | `WAM/` (BinaryInfo, encode, constants) |
+| 53 | Bot Profile USync Protocol | No | Yes | `WAUSync/Protocols/UsyncBotProfileProtocol.js` |
+| 54 | Status WhatsApp with Mentions | No | Yes | `Socket/message-builders.js` |
+| 55 | MessageBuilders System (auto type routing) | No | Yes | `Socket/message-builders.js` |
 
 > [!IMPORTANT]
 > Official Baileys refers to the original [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys) v7.
 > yelib (miuujs/baileys) is a fork that extends the original with 40+ additional features including interactive messages, album messages, AI rich response system, full LID mapping, event messages, payment support, newsletter GraphQL API, retry manager, MessageBuilders system, business metadata nodes for buttons (ported from ourin-baileys), and various security/privacy systems. All features listed above are verified from the source code.
+>
+> **Newsletter Media Fix:** Image, video, and audio messages to newsletters now work correctly. Media uploads use the proper WhatsApp newsletter path (`/newsletter/newsletter-` instead of `/mms/`), include required mediatype attributes in the protocol node, and generate necessary metadata (thumbnails, duration, waveforms). Edit/delete operations on newsletters also use the correct edit values.
 
 ---

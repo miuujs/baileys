@@ -8,7 +8,7 @@ import { generateTableContent, generateTableContentV2, generateListContent, gene
 import { makeKeyedMutex, makeMutex } from '../Utils/make-mutex.js';
 import { getMessageReportingToken, shouldIncludeReportingToken } from '../Utils/reporting-utils.js';
 import { buildMergedTcTokenIndexWrite, isTcTokenExpired, resolveIssuanceJid, resolveTcTokenJid, shouldSendNewTcToken, storeTcTokensFromIqResult } from '../Utils/tc-token-utils.js';
-import { areJidsSameUser, getAdditionalNode, getBinaryNodeChild, getBinaryNodeChildren, isHostedLidUser, isHostedPnUser, isJidBot, isJidGroup, isJidMetaAI, isLidUser, isPnUser, jidDecode, jidEncode, jidNormalizedUser, PSA_WID, S_WHATSAPP_NET } from '../WABinary/index.js';
+import { areJidsSameUser, getAdditionalNode, getBinaryNodeChild, getBinaryNodeChildren, isHostedLidUser, isHostedPnUser, isJidBot, isJidGroup, isJidMetaAI, isJidNewsletter, isLidUser, isPnUser, jidDecode, jidEncode, jidNormalizedUser, PSA_WID, S_WHATSAPP_NET } from '../WABinary/index.js';
 import { USyncQuery, USyncUser } from '../WAUSync/index.js';
 import { makeNewsletterSocket } from './newsletter.js';
 import { MessageBuilders } from './message-builders.js';
@@ -546,7 +546,7 @@ export const makeMessagesSocket = (config) => {
         }
 
         await authState.keys.transaction(async () => {
-            const mediaType = getMediaType(message);
+            const mediaType = getMediaType(normalizeMessageContent(message) || message);
             if (mediaType) {
                 extraAttrs['mediatype'] = mediaType;
             }
@@ -556,7 +556,7 @@ export const makeMessagesSocket = (config) => {
                 const bytes = encodeNewsletterMessage(patched);
                 binaryNodeContent.push({
                     tag: 'plaintext',
-                    attrs: {},
+                    attrs: extraAttrs || {},
                     content: bytes
                 });
                 const stanza = {
@@ -1246,7 +1246,13 @@ export const makeMessagesSocket = (config) => {
                         }),
                     getProfilePicUrl: sock.profilePictureUrl,
                     getCallLink: sock.createCallLink,
-                    upload: waUploadToServer,
+                    upload: async (readStream, opts) => {
+                        const up = await waUploadToServer(readStream, {
+                            ...opts,
+                            newsletter: isJidNewsletter(jid)
+                        });
+                        return up;
+                    },
                     mediaCache: config.mediaCache,
                     options: config.options,
                     messageId: generateMessageIDV2(sock.user?.id),
@@ -1260,13 +1266,11 @@ export const makeMessagesSocket = (config) => {
                 const additionalAttributes = {};
                 const additionalNodes = [];
                 if (isDeleteMsg) {
-                    if (isJidGroup(content.delete?.remoteJid) && !content.delete?.fromMe) {
-                        additionalAttributes.edit = '8';
-                    } else {
-                        additionalAttributes.edit = '7';
-                    }
+                    const fromMe = content.delete?.fromMe;
+                    const isGroup = isJidGroup(content.delete?.remoteJid);
+                    additionalAttributes.edit = (isGroup && !fromMe) || isJidNewsletter(jid) ? '8' : '7';
                 } else if (isEditMsg) {
-                    additionalAttributes.edit = '1';
+                    additionalAttributes.edit = isJidNewsletter(jid) ? '3' : '1';
                 } else if (isPinMsg) {
                     additionalAttributes.edit = '2';
                 } else if (isPollMessage) {
