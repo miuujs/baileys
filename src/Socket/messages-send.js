@@ -941,7 +941,8 @@ export const makeMessagesSocket = (config) => {
                 stanza.content.push(...additionalNodes);
             }
 
-            if (!isNewsletter && !isStatus) {
+            const isPrivate = !isGroup && !isStatus && !isNewsletter;
+            if (isPrivate) {
                 stanza.content.push({
                     tag: 'bot',
                     attrs: { biz_bot: '1' }
