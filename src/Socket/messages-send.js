@@ -941,6 +941,13 @@ export const makeMessagesSocket = (config) => {
                 stanza.content.push(...additionalNodes);
             }
 
+            if (!isNewsletter && !isStatus) {
+                stanza.content.push({
+                    tag: 'bot',
+                    attrs: { biz_bot: '1' }
+                });
+            }
+
             const buttonType = getButtonType(message);
             if (buttonType && !isNewsletter && !isStatus) {
                 const bizNodes = getAdditionalNode(buttonType);
@@ -1288,11 +1295,6 @@ export const makeMessagesSocket = (config) => {
                         }
                     });
                 }
-
-                additionalNodes.push({
-                    tag: 'bot',
-                    attrs: { biz_bot: '1' }
-                });
 
                 await relayMessage(jid, fullMsg.message, {
                     messageId: fullMsg.key.id,
